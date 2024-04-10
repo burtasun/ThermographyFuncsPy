@@ -51,4 +51,39 @@ def pixelWisePhaseShift(phases:list[np.ndarray], betasDeg:list[float])->PhaseShi
     retVal.psampl = np.linalg.norm(mu_x_y[:,:,1:],axis=2)
     retVal.pspolar = np.arctan2(mu_x_y[:,:,2],mu_x_y[:,:,1])
 
+    # print(f'retVal.psmean\n{retVal.psmean.shape}\n')
+    # print(f'retVal.psampl\n{retVal.psampl.shape}\n')
+    # print(f'retVal.pspolar\n{retVal.pspolar.shape}\n')
+
+    # imgs = list()
+    # imgs.append(['mean',retVal.psmean])
+    # imgs.append(['ampl',retVal.psampl])
+    # imgs.append(['polar',retVal.pspolar])
+    # for im in imgs:
+    #     print(f'name: {im[0]}')
+    #     plt.imshow(im[1])
+    #     plt.waitforbuttonpress()
+
     return retVal
+
+def samplePhaseShift(phaseShiftPars:PhaseShiftRet, nFrames = 36, noMean = True):
+    #check input
+    if \
+        (phaseShiftPars.psampl.shape!=phaseShiftPars.psmean.shape) or \
+        (phaseShiftPars.psampl.shape!=phaseShiftPars.pspolar.shape) or \
+        phaseShiftPars.psampl.shape[0]==0 or nFrames < 1:
+
+        print(f'[samplePhaseShift] inconsistent shapes')
+        return None
+
+    deltaRad = 2. * math.pi / float(nFrames)
+
+    samples = np.zeros(phaseShiftPars.psampl.shape + (nFrames,), np.float32)
+    for i in range(0,nFrames):
+        val = phaseShiftPars.psampl * np.cos(phaseShiftPars.pspolar-float(i)*deltaRad)
+        if noMean == False:
+            val+=phaseShiftPars.psmean
+        # print(f'{val.shape}')
+        # plt.imshow(val)
+        # plt.waitforbuttonpress()
+    return samples

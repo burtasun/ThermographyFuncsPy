@@ -42,16 +42,5 @@ if __name__=='__main__':
     psRet = thermo_phase_shift.pixelWisePhaseShift(phases, betasDeg)
     if psRet is None:
         exit(0)
-    
-    print(f'psRet.psmean\n{psRet.psmean.shape}\n')
-    print(f'psRet.psampl\n{psRet.psampl.shape}\n')
-    print(f'psRet.pspolar\n{psRet.pspolar.shape}\n')
-
-    imgs = list()
-    imgs.append(['mean',psRet.psmean])
-    imgs.append(['ampl',psRet.psampl])
-    imgs.append(['polar',psRet.pspolar])
-    for im in imgs:
-        print(f'name: {im[0]}')
-        plt.imshow(im[1])
-        plt.waitforbuttonpress()
+            
+    sampledPhaseShift = thermo_phase_shift.samplePhaseShift(psRet)
