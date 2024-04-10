@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2 as cv
 import math
+import helpers_imgs
 
 class PhaseShiftRet:
     psmean=np.ndarray
@@ -51,10 +52,11 @@ def pixelWisePhaseShift(phases:list[np.ndarray], betasDeg:list[float])->PhaseShi
     retVal.psampl = np.linalg.norm(mu_x_y[:,:,1:],axis=2)
     retVal.pspolar = np.arctan2(mu_x_y[:,:,2],mu_x_y[:,:,1])
 
+
     # print(f'retVal.psmean\n{retVal.psmean.shape}\n')
     # print(f'retVal.psampl\n{retVal.psampl.shape}\n')
     # print(f'retVal.pspolar\n{retVal.pspolar.shape}\n')
-
+    # dirOut = r'C:\Users\benat\source\repos\ThermographyFuncsPy\out'
     # imgs = list()
     # imgs.append(['mean',retVal.psmean])
     # imgs.append(['ampl',retVal.psampl])
@@ -63,8 +65,15 @@ def pixelWisePhaseShift(phases:list[np.ndarray], betasDeg:list[float])->PhaseShi
     #     print(f'name: {im[0]}')
     #     plt.imshow(im[1])
     #     plt.waitforbuttonpress()
+    #     imByte = helpers_imgs.ConvertToMaxContrastUchar(im[1])
+    #     cv.imwrite(f'{dirOut}\\{im[0]}.tiff', im[1])
+    #     cv.imwrite(f'{dirOut}\\{im[0]}_byte.tiff', imByte)
+        
 
     return retVal
+
+def cosineImg(ampl:np.ndarray, polar:np.ndarray, offset:float) ->np.ndarray:
+    return ampl * np.cos(polar-offset)
 
 def samplePhaseShift(phaseShiftPars:PhaseShiftRet, nFrames = 36, noMean = True):
     #check input
@@ -80,10 +89,180 @@ def samplePhaseShift(phaseShiftPars:PhaseShiftRet, nFrames = 36, noMean = True):
 
     samples = np.zeros(phaseShiftPars.psampl.shape + (nFrames,), np.float32)
     for i in range(0,nFrames):
-        val = phaseShiftPars.psampl * np.cos(phaseShiftPars.pspolar-float(i)*deltaRad)
+        val = cosineImg(phaseShiftPars.psampl,phaseShiftPars.pspolar, float(i)*deltaRad)
         if noMean == False:
             val+=phaseShiftPars.psmean
         # print(f'{val.shape}')
         # plt.imshow(val)
         # plt.waitforbuttonpress()
     return samples
+
+
+#aux overlay flow
+def logFlowIm(imIn:np.ndarray, flowIn:np.ndarray, scale = 4, scaleArrows = 32, thickness = 2, sub = 4):
+    im = cv.resize(imIn, (imIn.shape[1]*scale, imIn.shape[0]*scale), interpolation=cv.INTER_LINEAR)
+    # im = imIn
+
+    for i in range(0,flowIn.shape[0],sub):#row
+        for j in range(0,flowIn.shape[1],sub):#col
+            #OpenCV points X and Y / numpy index row/y and col/x
+            p1 = np.array([j*scale,i*scale]).astype(np.int32)
+            p2 = np.array([
+                          p1[0]+ flowIn[i,j,0] * scaleArrows,\
+                          p1[1]+ flowIn[i,j,1] * scaleArrows]).astype(np.int32)
+            cv.arrowedLine(im, p1, p2, (0, 0, 255), thickness, tipLength=0.5, line_type=cv.LINE_AA)
+    return im
+
+
+class OF_Pars:
+    # winSzConv = 3
+    # sigmConv = 1.0
+    # nFrames = 48
+    # #wrap pars OF_OpenCV
+    # pyr_scale = 0.5
+    # poly_sigma = 1.1
+    # levels = 2
+    # winSzOF = 20
+    # iterations = 3
+    # poly_n = 5
+    # flags = 0
+    winSzConv = 21
+    sigmConv = 0
+    nFrames = 48
+    #wrap pars OF_OpenCV
+    pyr_scale = 0.5
+    poly_sigma = 1.3
+    levels = 1
+    winSzOF = 7
+    iterations = 3
+    poly_n = 7
+    flags = 0
+#class OF_Pars
+    
+
+#accumulated optical flow
+def PhaseShiftedOpticalFlow (\
+    phaseShiftPars:PhaseShiftRet,\
+    ofPars:OF_Pars, log=False) -> np.ndarray:
+    
+    if ofPars is None:
+        ofPars = OF_Pars()
+
+    nFrames = ofPars.nFrames
+    winSz = ofPars.winSzConv
+    sigmConv = ofPars.sigmConv
+
+	#check inputs
+    
+    if \
+        (phaseShiftPars.psampl.shape!=phaseShiftPars.psmean.shape) or \
+        (phaseShiftPars.psampl.shape!=phaseShiftPars.pspolar.shape) or \
+        phaseShiftPars.psampl.shape[0]==0 or nFrames < 2 or winSz < 3:
+
+        print(f'[PhaseShiftedOpticalFlow] inconsistent shapes or params')
+        return None
+
+    deltaRad = 2 * math.pi / float(nFrames)
+    
+    ampl = phaseShiftPars.psampl
+    polar = phaseShiftPars.pspolar
+    mean = phaseShiftPars.psmean
+
+    #frame 0
+    #   optical flow in opencv as byte images
+    f0 = helpers_imgs.ConvertToMaxContrastUchar(\
+        cosineImg(ampl,polar,0))
+    fPrev = f0#shallow copy?
+    fCurr = np.zeros(f0.shape,f0.dtype)
+    
+    #current flow
+    flowCurr = np.zeros(ampl.shape+(2,),ampl.dtype)
+    #accumulated flow
+    flowAcc = np.zeros(ampl.shape+(2,),ampl.dtype)
+    
+    for i in range(1,nFrames+1):
+        radCurr = deltaRad * float(i%nFrames)
+        fCurr = helpers_imgs.ConvertToMaxContrastUchar(\
+			cosineImg(ampl,polar,radCurr))
+
+        #componentes u,v // x,y optical flow
+        cv.calcOpticalFlowFarneback(\
+            fPrev,fCurr,flowCurr,\
+            ofPars.pyr_scale, ofPars.levels, ofPars.winSzOF, ofPars.iterations,\
+            ofPars.poly_n, ofPars.poly_sigma, ofPars.flags)
+        print(f'flowCurr.shape {flowCurr.shape}')
+        flowAcc += flowCurr
+        fPrev = fCurr
+        # if log:
+        #     fPrevByte = helpers_imgs.ConvertToMaxContrastUchar(fPrev)
+        #     flowOverlay = logFlowIm(fPrevByte,flowCurr)
+        #     plt.imshow(flowOverlay)
+        #     plt.waitforbuttonpress()
+    #frames
+    if log:
+        fPrevByte = helpers_imgs.ConvertToMaxContrastUchar(fPrev)
+        flowOverlay = logFlowIm(fPrevByte,flowAcc/float(nFrames))
+        plt.imshow(flowOverlay)
+        plt.waitforbuttonpress()
+    return flowAcc
+#PhaseShiftedOpticalFlow
+
+
+class PhaseShiftOpticalFlowIntegrals:
+    vorticity=np.ndarray
+    divergence=np.ndarray
+#PhaseShiftOpticalFlowIntegrals
+    
+def IntegrateOpticalFlow(flowAcc:np.ndarray, winSz = 11):
+    #check input
+    if winSz < 3 or len(flowAcc.shape)!=3 or flowAcc.shape[0]==0:
+        print('[IntegrateOpticalFlow] invalid inputs')
+        return None
+    
+    #convolve / augment borders
+    b = int((winSz - 1) / 2) #border
+    uv = cv.copyMakeBorder(flowAcc, b + 1, b + 1, b + 1, b + 1, cv.BORDER_REFLECT)
+
+
+    #TODO ponderar radialmente
+    # 	cv::Mat w;
+    # 	if constexpr (gaussWeight) {
+    # 		auto w1 = cv::getGaussianKernel(winSz, sigmWeight, CV_32F);
+    # 		cv::Mat w2;
+    # 		cv::transpose(w1, w2);
+    # 		w = w1 * w2;
+    # 		std::cout << "w\n" << w << "\n";
+    # 	}
+
+
+    #cache unitary vector window kernel
+    rij = np.zeros([b*2+1,b*2+1,2],np.float32)
+    for i in range(-b,b + 1): #row,y
+        for j in range(-b,b + 1): #col,x
+            if i==0 and j==0:
+                continue #null
+            rij[i+b,j+b,0] = float(j) / math.sqrt(float(i) * float(i) + float(j) * float(j))
+            rij[i+b,j+b,1] = float(i) / math.sqrt(float(i) * float(i) + float(j) * float(j))
+
+    output = np.zeros((flowAcc.shape[0],flowAcc.shape[1],1),np.float32)
+    for row in range(b,flowAcc.shape[0]+b):
+        for col in range(b,flowAcc.shape[1]+b):
+            v = 0.0
+            for i in  range(-b, b + 1):
+                for j in  range(-b, b + 1):
+                    if i==0 and j==0:
+                        continue #null
+                    crossRij = \
+                    	rij[i + b, j + b, 1] * uv[row + i, col + j, 0] - \
+                    	rij[i + b, j + b, 0] * uv[row + i, col + j, 1]
+                    v+=crossRij
+            output[row-b,col-b] = v
+    return output
+
+
+
+# 	out = cv::Mat(u.size(), CV_32FC1);
+# #pragma omp parallel for
+# 	for (int i = 0; i < out.rows; ++i)
+# 		for (int j = 0; j < out.cols; ++j)
+# 			out.at<float>(i, j) = kern(i + b, j + b);
