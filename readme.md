@@ -5,8 +5,7 @@ Thermography functions: processing, stabilization, etc.
 -  IO
     - json parse
     - read edevis containers
-- temporal compresions
-    - FFT
+-  temporal compresions
     - HOS
     - PCA
     - PCT
@@ -28,3 +27,5 @@ Thermography functions: processing, stabilization, etc.
 ## DONE
 -  IO
     - read edevis containers
+- temporal compresions
+    - FFT

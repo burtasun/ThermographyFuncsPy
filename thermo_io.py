@@ -1,11 +1,11 @@
-import commonImports
+import numpy as np
+import matplotlib as plt
 import cv2 as cv
 import tifffile as tiff
 import subprocess
-import numpy as np
-from numpy import fft
 import time
 import os
+import math
 
 def iniEnv():
     pathEnv = os.environ['PATH']
@@ -19,8 +19,8 @@ def iniEnv():
     #TODO test multiple directions
 def loadThermo(
         abspath:str,
-        nPulsesPerDirection=1,
-        nDirections=1)-> list[np.ndarray]:
+        nPulsesPerDirection=0,
+        nDirections=0)-> [list[np.ndarray],int]:
 
     tini = time.time()
     errCodes = {
@@ -58,6 +58,8 @@ def loadThermo(
     process = subprocess.Popen(exeArgs, stdout=subprocess.PIPE, creationflags=0x08000000)
     process.wait(timeOut) #internal ~= 0.3sg
     ret = process.returncode
+    acquisitionPeriods = ret >> 16
+    ret = ret & ((1<<8)-1)
 
     if not (ret in errCodes):
         print(f'codigo {ret} no reconocido')
@@ -81,12 +83,12 @@ def loadThermo(
         termos.append(termo)
     tend = time.time()
     print(f'elapsed time {str(tend-tini)}')
-    return termos
+    return termos, acquisitionPeriods
 
 #test
 if __name__=='__main__':
     iniEnv()
-    fn=r'C:\Users\benat\source\repos\ThermographyFuncsPy\AHT020__Alpha0_H_Norm.ITvisLockin'
-    termos = loadThermo(fn,1,1)
+    fn=r'C:\Users\benat\source\repos\ThermographyFuncsPy\data\AHT020__Alpha0_H_Norm.ITvisLockin'
+    termos, acquisitionPeriods = loadThermo(fn,1,1)
     for t in termos:
         print(f'{str(t.shape)}')
