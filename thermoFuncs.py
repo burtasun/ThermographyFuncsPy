@@ -1,7 +1,8 @@
-import numpy as np
-import matplotlib as mlp
+import commonImports
+import thermo_io
 
-import cv2 as cv
+def iniEnv():
+    thermo_io.iniEnv()
 
 if __name__=='__main__':
     print('''
@@ -9,3 +10,8 @@ if __name__=='__main__':
     Thermographic processing algorithms
 --------------------------------------------
 ''')
+    iniEnv()
+    fn=r'C:\Users\benat\source\repos\ThermographyFuncsPy\AHT020__Alpha0_H_Norm.ITvisLockin'
+    termos = thermo_io.loadThermo(fn,1,1)
+    for t in termos:
+        print(f'{str(t.shape)}')
