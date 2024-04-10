@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import cv2 as cv
 import math
 import helpers_imgs
+import globalVars
 
 class PhaseShiftRet:
     psmean=np.ndarray
@@ -67,7 +68,7 @@ def pixelWisePhaseShift(phases:list[np.ndarray], betasDeg:list[float])->PhaseShi
     #     plt.waitforbuttonpress()
     #     imByte = helpers_imgs.ConvertToMaxContrastUchar(im[1])
     #     cv.imwrite(f'{dirOut}\\{im[0]}.tiff', im[1])
-    #     cv.imwrite(f'{dirOut}\\{im[0]}_byte.tiff', imByte)
+    #     cv.imwrite(f'{dirOut}\\{im[0]}_Byte.jpg', imByte)
         
 
     return retVal
@@ -101,6 +102,7 @@ def samplePhaseShift(phaseShiftPars:PhaseShiftRet, nFrames = 36, noMean = True):
 #aux overlay flow
 def logFlowIm(imIn:np.ndarray, flowIn:np.ndarray, scale = 4, scaleArrows = 32, thickness = 2, sub = 4):
     im = cv.resize(imIn, (imIn.shape[1]*scale, imIn.shape[0]*scale), interpolation=cv.INTER_LINEAR)
+    im = cv.cvtColor(im, cv.COLOR_GRAY2BGR)
     # im = imIn
 
     for i in range(0,flowIn.shape[0],sub):#row
@@ -115,17 +117,6 @@ def logFlowIm(imIn:np.ndarray, flowIn:np.ndarray, scale = 4, scaleArrows = 32, t
 
 
 class OF_Pars:
-    # winSzConv = 3
-    # sigmConv = 1.0
-    # nFrames = 48
-    # #wrap pars OF_OpenCV
-    # pyr_scale = 0.5
-    # poly_sigma = 1.1
-    # levels = 2
-    # winSzOF = 20
-    # iterations = 3
-    # poly_n = 5
-    # flags = 0
     winSzConv = 21
     sigmConv = 0
     nFrames = 48
@@ -204,7 +195,9 @@ def PhaseShiftedOpticalFlow (\
         flowOverlay = logFlowIm(fPrevByte,flowAcc/float(nFrames))
         plt.imshow(flowOverlay)
         plt.waitforbuttonpress()
+        cv.imwrite(f'{globalVars._outputDir}\\flowOverlayByte.jpg', helpers_imgs.ConvertToMaxContrastUchar(flowOverlay))
     return flowAcc
+
 #PhaseShiftedOpticalFlow
 
 
@@ -244,7 +237,10 @@ def IntegrateOpticalFlow(flowAcc:np.ndarray, winSz = 11):
             rij[i+b,j+b,0] = float(j) / math.sqrt(float(i) * float(i) + float(j) * float(j))
             rij[i+b,j+b,1] = float(i) / math.sqrt(float(i) * float(i) + float(j) * float(j))
 
+    #vorticity
     output = np.zeros((flowAcc.shape[0],flowAcc.shape[1],1),np.float32)
+
+    #TODO degenerate kernel!
     for row in range(b,flowAcc.shape[0]+b):
         for col in range(b,flowAcc.shape[1]+b):
             v = 0.0
@@ -257,12 +253,7 @@ def IntegrateOpticalFlow(flowAcc:np.ndarray, winSz = 11):
                     	rij[i + b, j + b, 0] * uv[row + i, col + j, 1]
                     v+=crossRij
             output[row-b,col-b] = v
+
+    plt.imshow(output)
+    plt.waitforbuttonpress()
     return output
-
-
-
-# 	out = cv::Mat(u.size(), CV_32FC1);
-# #pragma omp parallel for
-# 	for (int i = 0; i < out.rows; ++i)
-# 		for (int j = 0; j < out.cols; ++j)
-# 			out.at<float>(i, j) = kern(i + b, j + b);

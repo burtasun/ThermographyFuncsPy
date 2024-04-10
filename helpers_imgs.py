@@ -16,5 +16,14 @@ def ConvertToMaxContrastUchar(imgRAW:np.ndarray) -> np.ndarray:
     linearRel = (255 / (maxRAW - minRAW)) if minRAW != maxRAW else 0
     imgRawConv = imgRAW.astype(np.float64)
     img_eq = (imgRawConv-float(minRAW))*linearRel#maximize to 8bits
-    
+
     return np.clip(img_eq,0,255).astype(np.uint8)
+
+def centerMeanSequence(imgs:list[np.ndarray]):
+    #Centrar media
+    means = list[float]()
+    for im in imgs:
+        means.append(np.mean(im))
+    mean = np.mean(np.array(means))
+    for im_i, mean_i in zip(imgs,means):
+        im_i += -mean_i + mean

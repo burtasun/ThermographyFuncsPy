@@ -5,7 +5,8 @@ import tifffile as tiff
 import thermo_io
 import thermo_procs
 import thermo_phase_shift
-
+import helpers_imgs
+import globalVars
 def iniEnv():
     thermo_io.iniEnv()
 
@@ -19,7 +20,6 @@ if __name__=='__main__':
 
     #input
     #   TODO serializar
-    outputDir = '.\\out'
     dirThermos =r'D:\Datasets\Termografias\Phase-Shifted_Induction_Thermography\POD\SetAuthentic\Cache'
     fns=[\
         'AHT_020_FlirX6541sc_220fps_3kW_B035_j000_30kHz_100PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
@@ -40,7 +40,18 @@ if __name__=='__main__':
             phases.append(pha)
             # plt.imshow(pha)
             # plt.waitforbuttonpress()
-    cv.imwritemulti(f'{outputDir}\\phases.tiff',phases)
+    # cv.imwritemulti(f'{globalVars._outputDir}\\phases.tiff',phases)
+            
+
+    #basic preproc
+    cv.imwrite(f'{globalVars._outputDir}\\phasesConcat.tiff',np.hstack(phases))
+    helpers_imgs.centerMeanSequence(phases)
+    cv.imwrite(f'{globalVars._outputDir}\\phasesConcatCentered.tiff',np.hstack(phases))
+    cv.imwrite(f'{globalVars._outputDir}\\phasesConcatCenteredByte.jpg',helpers_imgs.ConvertToMaxContrastUchar(np.hstack(phases)))
+
+    imgs = list()
+    for phase in phases:
+        imgs.append(helpers_imgs.ConvertToMaxContrastUchar(phase))
 
     psRet = thermo_phase_shift.pixelWisePhaseShift(phases, betasDeg)
     if psRet is None:
@@ -51,6 +62,10 @@ if __name__=='__main__':
     flowAcc = thermo_phase_shift.PhaseShiftedOpticalFlow(psRet, None, True)
 
     vorticity = thermo_phase_shift.IntegrateOpticalFlow(flowAcc, 21)
-    plt.imshow(vorticity)
-    plt.waitforbuttonpress()
-    tiff.imwrite(f'{outputDir}\\vorticity.tiff',vorticity)
+
+    tiff.imwrite(f'{globalVars._outputDir}\\vorticity.tiff',vorticity)
+    tiff.imwrite(f'{globalVars._outputDir}\\vorticityByte.jpg',helpers_imgs.ConvertToMaxContrastUchar(vorticity))
+    vorticityTruncate = np.copy(vorticity)
+    vorticityTruncate[vorticityTruncate<0] = 0
+    tiff.imwrite(f'{globalVars._outputDir}\\vorticityTruncateByte.jpg',\
+        helpers_imgs.ConvertToMaxContrastUchar(vorticityTruncate))
