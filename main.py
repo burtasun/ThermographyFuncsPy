@@ -56,6 +56,11 @@ if __name__=='__main__':
     if tasks.dynamicTermo:
         for data in dataInputs:
             data = DynamicTermo(data, Params.DynamicTermoPars)
+    elif deltasReg is not None:
+        for data,deltas in zip(dataInputs,deltasReg):
+            data = stitchImgs(data, deltas)
+            cv.imwritemulti(Params.outputDir + "\\stitchedSeq.tiff", data)
+
     #PREPROC TERMO
     if tasks.dynamicTermo:
         for data in dataInputs:

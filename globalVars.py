@@ -18,21 +18,24 @@ class Params:
     threshOF = float
     
     class Input:
-        dirFiles =r'D:\Datasets\Termografias\Phase-Shifted_Induction_Thermography\POD\SetAuthentic\Cache'
-        fns=[\
-            'AHT_020_FlirX6541sc_220fps_3kW_B035_j000_30kHz_100PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
-            'AHT_020_FlirX6541sc_220fps_3kW_B035_j045_30kHz_90PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
-            'AHT_020_FlirX6541sc_220fps_3kW_B035_j090_30kHz_100PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
-            'AHT_020_FlirX6541sc_220fps_3kW_B035_j135_30kHz_90PWM_MP_3P_5Hz_L_220601.ITvisLockin'\
-            ]
-        betasDeg=[0,45,90,135]
+        dirFiles = r'D:\Datasets\Termografias\DynamicMulti_Paper\Records\2023_11\Palanquillas\90x250'
+        fns = ['Palanquilla_90x250_Induction_20231122_203841_v375_flock5_n1_nTot288_2.tiff']
+        # dirFiles =r'D:\Datasets\Termografias\Phase-Shifted_Induction_Thermography\POD\SetAuthentic\Cache'
+        # fns=[\
+        #     'AHT_020_FlirX6541sc_220fps_3kW_B035_j000_30kHz_100PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
+        #     'AHT_020_FlirX6541sc_220fps_3kW_B035_j045_30kHz_90PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
+        #     'AHT_020_FlirX6541sc_220fps_3kW_B035_j090_30kHz_100PWM_MP_3P_5Hz_L_220601.ITvisLockin',\
+        #     'AHT_020_FlirX6541sc_220fps_3kW_B035_j135_30kHz_90PWM_MP_3P_5Hz_L_220601.ITvisLockin'\
+        #     ]
+        # betasDeg=[0,45,90,135]
+        betasDeg=[0]
         acquisitionPeriods = 1#from itvis container
     
     class LogData:
         saveData = True
 
     class Tasks:#sequential proc tasks
-        register = False #local stabilization
+        register = True #local stabilization
         dynamicTermo = False #sync multi-pulses
         preprocTermo = False
         postprocTermo = True

@@ -11,6 +11,68 @@ import helpers_imgs
 from globalVars import *
 from typedefs import *
 
+def getDimsOffsetTfsImgs(\
+	transforms:list[np.ndarray],
+	h:int, w:int,
+) -> [np.ndarray, np.ndarray]:
+	#stitch directo
+	#obtener dimensiones finales del frame completo roto-trasladando esquinas de frames
+    corners = np.array(\
+        [0, w, w, 0,\
+		0, 0, h, h]).T.reshape(2,4)
+    cornersTrans = np.zeros([2,4*len(transforms)])
+	#roto-traslacion esquinas de cada frame
+    for i in range(len(transforms)):
+        rot = transforms[i][:2,:2]
+        trans = transforms[i][:2,2:]
+        cornersTrans[:,i*4:(i+1)*4] = rot @ corners + np.repeat(trans,4,axis=1)
+        # print(f'cornersTrans[:,i*4:(i+1)*4]\n{cornersTrans[:,i*4:(i+1)*4]}')
+    # print(f'cornersTrans\n{cornersTrans}')
+    minMaxBB = np.percentile(cornersTrans,(0,100),axis=1)#mXmy;MXMY
+    # print(f'minMaxBB\n{minMaxBB}')
+    wBB, hBB = minMaxBB[1,:] - minMaxBB[0,:] #dimensiones del frame global
+    upLeftCornerPts = cornersTrans[:,::4]
+    offset = np.max(upLeftCornerPts, axis=1)#offset global respecto a origen (upleft)
+
+    #Transformacion frames respecto a frame global
+    transformsOut = list[np.ndarray]()
+    for i in range(len(transforms)):
+        t = np.identity(3,np.float32)
+        t[:2,:3] = transforms[i][:2,:]#roto-traslacion
+        d = np.identity(3,np.float32)
+        d[:2, 2] = offset#traslacion
+        t_global_local = d @ np.linalg.inv(t) #a grame global
+        transformsOut.append(t_global_local)
+        # print(f'{i} t_global_local\n{t_global_local}\n\n')
+    return transformsOut, np.array([wBB,hBB]).astype(np.int32)
+
+#helper delta2d -> Tf2d
+def displacementToHomogMat(disp):
+    ret = np.eye(3,3)
+    ret[:2,2]=disp
+    return ret
+
+def stitchImgs(
+    imgs:np.ndarray,
+    deltas:np.ndarray
+)->np.ndarray:
+    # stitching en unico frame superponiendo imagenes
+    nImgs,h,w=imgs.shape
+    nImgs = min(nImgs,deltas.shape[0])
+    deltasTf = list[np.ndarray]()
+    for i in range(nImgs):
+        deltasTf.append(displacementToHomogMat(deltas[i,...].T))
+        
+    #global frame for stitching
+    tfsGlob, whDims = getDimsOffsetTfsImgs(deltasTf,h,w)
+    stitchedSeq = np.zeros((nImgs,whDims[1],whDims[0]),np.float32)
+    fig, ax = plt.subplots()
+    for i in range(nImgs):
+        stitchedSeq[i,...] = cv.warpAffine(\
+            imgs[i,...], tfsGlob[i][:2,:], (whDims[0],whDims[1]), None, borderMode=cv.BORDER_CONSTANT)
+    return stitchedSeq
+#stitchImgs
+
 #Opencv feature match
 class Matcher:
     def __init__(self, DescriptorType:str) -> None:
@@ -95,9 +157,13 @@ TODO others... bi-directional reg, etc. / sparse BA??
 def Register(
     imgs:list[np.ndarray],
     viewMatches = False,
-    plotTrajectory = False
+    plotTrajectory = False,
+    registerPars = RegisterPars()
 ) -> np.ndarray:
-
+    
+    if registerPars is None:
+        registerPars=RegisterPars()
+        
     nimgs,h,w=imgs.shape
     deltas = np.zeros((nimgs,2))#incl 1st (null displacement)
     
@@ -110,7 +176,7 @@ def Register(
     countFailedMatches = 0
     #TODO paralelize
     for i in range(1,imgs.shape[0]):
-        if ((i%RegisterPars.maxFramesBackReg)==0):
+        if ((i%registerPars.maxFramesBackReg)==0):
             iref = i-1
             matcher.setRefimg(imgs[iref,...])#sucesivamente hereda errores locales, diverge mucho
         trans_i_iref = matcher.matchImg(imgs[i,...], showMatches=viewMatches)
