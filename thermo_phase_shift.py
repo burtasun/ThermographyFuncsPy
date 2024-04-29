@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import cv2 as cv
 import math
 import helpers_imgs
-import globalVars
+from globalVars import *
 
 class PhaseShiftRet:
     psmean=np.ndarray
@@ -100,13 +100,15 @@ def samplePhaseShift(phaseShiftPars:PhaseShiftRet, nFrames = 36, noMean = True):
 
 
 #aux overlay flow
-def logFlowIm(imIn:np.ndarray, flowIn:np.ndarray, scale = 4, scaleArrows = 32, thickness = 2, sub = 4):
+def logFlowIm(imIn:np.ndarray, flowIn:np.ndarray, scale = 4, scaleArrows = 16, thickness = 2, sub = 4):
     im = cv.resize(imIn, (imIn.shape[1]*scale, imIn.shape[0]*scale), interpolation=cv.INTER_LINEAR)
     im = cv.cvtColor(im, cv.COLOR_GRAY2BGR)
     # im = imIn
 
     for i in range(0,flowIn.shape[0],sub):#row
         for j in range(0,flowIn.shape[1],sub):#col
+            if (flowIn[i,j,0]==flowIn[i,j,1]) and flowIn[i,j,0]==0:
+                continue
             #OpenCV points X and Y / numpy index row/y and col/x
             p1 = np.array([j*scale,i*scale]).astype(np.int32)
             p2 = np.array([
@@ -195,7 +197,7 @@ def PhaseShiftedOpticalFlow (\
         flowOverlay = logFlowIm(fPrevByte,flowAcc/float(nFrames))
         plt.imshow(flowOverlay)
         plt.waitforbuttonpress()
-        cv.imwrite(f'{globalVars._outputDir}\\flowOverlayByte.jpg', helpers_imgs.ConvertToMaxContrastUchar(flowOverlay))
+        cv.imwrite(f'{Params.outputDir}\\flowOverlayByte.jpg', helpers_imgs.ConvertToMaxContrastUchar(flowOverlay))
     return flowAcc
 
 #PhaseShiftedOpticalFlow
