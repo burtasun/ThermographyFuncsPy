@@ -6,9 +6,12 @@ import thermo_io
 import thermo_procs
 import thermo_phase_shift
 import helpers_imgs
-import globalVars
+from globalVars import *
 def iniEnv():
     thermo_io.iniEnv()
+
+
+
 
 if __name__=='__main__':
     print('''
@@ -17,6 +20,8 @@ if __name__=='__main__':
 --------------------------------------------
 ''')
     iniEnv()
+
+    Params.outputDir = '.\\out'
 
     #input
     #   TODO serializar
@@ -28,6 +33,11 @@ if __name__=='__main__':
         'AHT_020_FlirX6541sc_220fps_3kW_B035_j135_30kHz_90PWM_MP_3P_5Hz_L_220601.ITvisLockin'\
         ]
     betasDeg=[0,45,90,135]
+    dirThermos =r'D:\Datasets\Termografias\DynamicMulti_Paper\Records\2023_11\Palanquillas\90x250'
+    fns=[\
+        r'Palanquilla_90x250_Induction_20231122_203841_v375_flock5_n1_nTot288_2.ItvisLockin' \
+        ]
+    betasDeg=[0]
         
         
         
@@ -35,19 +45,21 @@ if __name__=='__main__':
     for fn in fns:
         termos, acquisitionPeriods = thermo_io.loadThermo(f'{dirThermos}\\{fn}',1,1)
         for t in termos:
+            cv.imwritemulti(f'{Params.outputDir}\\raw.tiff',t)
+            exit(0)
             # print(f'{str(t.shape)}')
             mag, pha = thermo_procs.FFT(t, acquisitionPeriods)
             phases.append(pha)
             # plt.imshow(pha)
             # plt.waitforbuttonpress()
-    # cv.imwritemulti(f'{globalVars._outputDir}\\phases.tiff',phases)
+    # cv.imwritemulti(f'{Params.outputDir}\\phases.tiff',phases)
             
 
     #basic preproc
-    cv.imwrite(f'{globalVars._outputDir}\\phasesConcat.tiff',np.hstack(phases))
+    cv.imwrite(f'{Params.outputDir}\\phasesConcat.tiff',np.hstack(phases))
     helpers_imgs.centerMeanSequence(phases)
-    cv.imwrite(f'{globalVars._outputDir}\\phasesConcatCentered.tiff',np.hstack(phases))
-    cv.imwrite(f'{globalVars._outputDir}\\phasesConcatCenteredByte.jpg',helpers_imgs.ConvertToMaxContrastUchar(np.hstack(phases)))
+    cv.imwrite(f'{Params.outputDir}\\phasesConcatCentered.tiff',np.hstack(phases))
+    cv.imwrite(f'{Params.outputDir}\\phasesConcatCenteredByte.jpg',helpers_imgs.ConvertToMaxContrastUchar(np.hstack(phases)))
 
     imgs = list()
     for phase in phases:
@@ -63,9 +75,9 @@ if __name__=='__main__':
 
     vorticity = thermo_phase_shift.IntegrateOpticalFlow(flowAcc, 21)
 
-    tiff.imwrite(f'{globalVars._outputDir}\\vorticity.tiff',vorticity)
-    tiff.imwrite(f'{globalVars._outputDir}\\vorticityByte.jpg',helpers_imgs.ConvertToMaxContrastUchar(vorticity))
+    tiff.imwrite(f'{Params.outputDir}\\vorticity.tiff',vorticity)
+    tiff.imwrite(f'{Params.outputDir}\\vorticityByte.jpg',helpers_imgs.ConvertToMaxContrastUchar(vorticity))
     vorticityTruncate = np.copy(vorticity)
     vorticityTruncate[vorticityTruncate<0] = 0
-    tiff.imwrite(f'{globalVars._outputDir}\\vorticityTruncateByte.jpg',\
+    tiff.imwrite(f'{Params.outputDir}\\vorticityTruncateByte.jpg',\
         helpers_imgs.ConvertToMaxContrastUchar(vorticityTruncate))
