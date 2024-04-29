@@ -6,6 +6,7 @@ import subprocess
 import time
 import os
 import math
+import pathlib
 
 def iniEnv():
     pathEnv = os.environ['PATH']
@@ -21,6 +22,16 @@ def loadThermo(
         abspath:str,
         nPulsesPerDirection=0,
         nDirections=0)-> [list[np.ndarray],int]:
+
+    #branch tiff
+    if os.path.splitext(abspath)[-1].lower().startswith(".tif"):#tif or tiff
+        termos = np.ndarray
+        termos = tiff.imread(abspath)
+        if len(termos)!=0:
+            termos = [termos]
+            acquisitionPeriods = 1#no hay meta para adquirirlo, predefinirlo externamente
+            return termos, acquisitionPeriods
+
 
     tini = time.time()
     errCodes = {
