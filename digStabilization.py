@@ -2,7 +2,7 @@ import sys
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2# as cv
+import cv2 as cv
 import tifffile as tiff
 import thermo_io
 import thermo_procs
@@ -14,7 +14,7 @@ from typedefs import *
 def getDimsOffsetTfsImgs(\
 	transforms:list[np.ndarray],
 	h:int, w:int,
-) -> [np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
 	#stitch directo
 	#obtener dimensiones finales del frame completo roto-trasladando esquinas de frames
     corners = np.array(\
@@ -75,27 +75,50 @@ def stitchImgs(
 
 #Opencv feature match
 class Matcher:
+    def iniDescriptorAndMatcher(DescriptorType):
+        #TODO parametrizar...
+        if DescriptorType == 'AKAZE':
+            kpDetectAndDescriptor = cv.AKAZE.create(\
+                descriptor_type=cv.AKAZE_DESCRIPTOR_MLDB_UPRIGHT,\
+                threshold=0.05,\
+                max_points=-1)
+            matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False) #descriptor binario / dist hamming 
+            norm2Byte = False
+        elif DescriptorType == 'SIFT':
+            kpDetectAndDescriptor = cv.SIFT.create(nfeatures=0,contrastThreshold=0.04)
+            matcher = cv.BFMatcher()
+            norm2Byte = True
+        else:
+            raise(f'iniDescriptorAndMatcher {DescriptorType} no implementado')
+        return kpDetectAndDescriptor, matcher, norm2Byte
+    
+            
     def __init__(self, DescriptorType:str) -> None:
         #detect kps and compute descriptor
-        self.kpDetectAndDescriptor = cv2.AKAZE.create(\
-            descriptor_type=cv2.AKAZE_DESCRIPTOR_MLDB_UPRIGHT,\
-            threshold=0.05,\
-            max_points=-1)
-        #matcher, akaze, binary descriptor, NormHamming
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        self.kpDetectAndDescriptor, self.matcher, self.norm2Byte = Matcher.iniDescriptorAndMatcher(DescriptorType)
+
     def setRefimg(self, img:np.ndarray):
-        self.imgRef = img
+        if self.norm2Byte:
+            self.imgRef = Matcher.imgToByte(img)
+        else:
+            self.imgRef = img
         self.kpRef, self.desRef = self.kpDetectAndDescriptor.detectAndCompute(self.imgRef, None)
 
-
-
+    def imgToByte(img):
+        return (255.0*(img-np.percentile(img,0.01))/(np.percentile(img,99.99)-np.percentile(img,0.01))).astype(np.uint8)
+            
+    """
+    distRatioMatch, ratio dist kNn1 Vs Knn2, proximidad relativa distrib
+    estim 3d trans Ramsac, ransacThresh proj err
+    """
     def matchImg(self, 
         img2Match:np.ndarray,\
-        distRatioMatch = 0.75, minPtsMatch = 4,\
+        distRatioMatch = 0.75, minPtsMatch = 10,\
         ransacThresh = 3, confidence = 0.99,
         showMatches = False
     ):
-        
+        if self.norm2Byte:
+            img2Match = Matcher.imgToByte(img2Match)
         kpsMatch, desMatch = self.kpDetectAndDescriptor.detectAndCompute(img2Match,None)
         #match descriptors
         matches = self.matcher.knnMatch(self.desRef,desMatch,k=2)
@@ -119,35 +142,35 @@ class Matcher:
             ptsRef_3d[:,:2] = ptsRef
             pts_3d = np.zeros((pts.shape[0],3),np.float32)
             pts_3d[:,:2] = pts
-            ret, trans3D, self.inliners = cv2.estimateTranslation3D(ptsRef_3d, pts_3d, ransacThreshold=3, confidence=0.99)
+            ret, trans3D, _ = cv.estimateTranslation3D(ptsRef_3d, pts_3d, ransacThreshold=ransacThresh, confidence=confidence)
             if ret == 0:
                 print('match unsucsessfull')
                 return None
         
         if showMatches:
-            def imgToByte(img):
-                return (255 * (img-np.min(img))/(np.max(img)-np.min(img))).astype(np.uint8)
-            imgRefVis = imgToByte(self.imgRef)
-            img2MatchVis = imgToByte(img2Match)
-            imgMatches = cv2.drawMatchesKnn(
+            imgRefVis = Matcher.imgToByte(self.imgRef)
+            img2MatchVis = Matcher.imgToByte(img2Match)
+            imgMatches = cv.drawMatchesKnn(
                 imgRefVis, self.kpRef,\
                 img2MatchVis, kpsMatch, good, None, flags=2)
             plt.imshow(imgMatches,cmap='gray')
             plt.waitforbuttonpress()
         
         return trans3D.flatten()[:2].reshape((1,2))
-    
-
-
-
-
 
 
 class RegisterPars:
     subSampleReg = 1#1: no sub, 2: skips 1 frame / half, etc.
-    maxFramesBackReg = 100# pair-wise registration of sequence-> (i,i-(i%maxFramesBackReg-1))
+    maxFramesBackReg = 300# pair-wise registration of sequence-> (i,i-(i%maxFramesBackReg-1))
 
-    
+#rough approximation
+def highPassFilter(img:np.ndarray, kSize = 11)->np.ndarray:
+    if kSize<3:
+        return img
+    #low-pass substraction as mean filter
+    imgLow = cv.blur(img,(kSize,kSize))
+    return img-imgLow
+
 '''
 TODO impl subsample reg
 TODO params ext
@@ -167,10 +190,13 @@ def Register(
     nimgs,h,w=imgs.shape
     deltas = np.zeros((nimgs,2))#incl 1st (null displacement)
     
-    #robust / relatively fast
-    matcher = Matcher('AKAZE')
+    #SIFT or AKAZE
+    # SIFT implemented only on 8bits!
+    # AKAZE robust / relatively fast
+    matcher = Matcher('SIFT')
     #save recurrent kp / descrip compute
-    matcher.setRefimg(imgs[0,...])
+    #   "highpass" mitigates information loss on 8 bit normalization
+    matcher.setRefimg(highPassFilter(imgs[0,...]))
 
     iref = 0#idx ref img
     countFailedMatches = 0
@@ -178,8 +204,8 @@ def Register(
     for i in range(1,imgs.shape[0]):
         if ((i%registerPars.maxFramesBackReg)==0):
             iref = i-1
-            matcher.setRefimg(imgs[iref,...])#sucesivamente hereda errores locales, diverge mucho
-        trans_i_iref = matcher.matchImg(imgs[i,...], showMatches=viewMatches)
+            matcher.setRefimg(highPassFilter(imgs[iref,...]))#sucesivamente hereda errores locales, diverge mucho, en su lugar maximizamos distancia / solape 50% suficiente, OK
+        trans_i_iref = matcher.matchImg(highPassFilter(imgs[i,...]), 0.5, 10, 1, showMatches=viewMatches)
         if trans_i_iref is None:
             print(f'image {i} regarding {iref}, does not have a match, using previous translation')
             deltas[i,...] = deltas[i-1,...]
@@ -194,3 +220,50 @@ def Register(
         plt.close()
     return deltas
 #Register
+
+
+#Temp filter 
+#   promedia componente alta freq con frames adyacentes roto-trasladados
+def TempFilter(\
+    imgs:np.ndarray,
+    deltas:list[np.ndarray],
+    averageRad = 2,
+    kMeanBlur = 11
+) -> np.ndarray:
+
+    nImgs,h,w=imgs.shape
+    b = averageRad
+    k = kMeanBlur
+    imgsOut = np.zeros(imgs.shape,np.float32)
+   
+    for i in range(imgs.shape[0]):
+        delta_0_i = deltas[i]
+        imgsHp_i = highPassFilter(imgs[i,...],k)
+        imgsLp_i = cv.blur(imgs[i,...],(k, k))
+        #solape variable, normalizacion en funcion de imagenes solapadas por pixel
+        # maskCount = (imgsHp_i!=0).astype(np.uint8)
+        n = 1
+        for j in range(max(0,i-b),min(i+b+1,len(deltas))):
+            if j==i:
+                continue
+            tf_0_j = displacementToHomogMat(deltas[j])
+            tf_0_i = displacementToHomogMat(deltas[i])
+            tf_i_j = np.linalg.inv(np.linalg.inv(tf_0_i) @ tf_0_j)
+            # tf_i_j = np.linalg.inv(tf_0_i) @ tf_0_j
+            print(tf_i_j[:2,2].T,np.linalg.inv(tf_0_i)[:2,2].T,tf_0_j[:2,2].T)
+            imgsHp_j = highPassFilter(imgs[j,...])
+            imgsHp_i_j = cv.warpAffine(imgsHp_j , tf_i_j[:2,...], (w,h), None, 
+                borderValue=0, borderMode=cv.BORDER_CONSTANT,
+                flags=cv.INTER_LINEAR)
+            mask_i_j = (imgsHp_i_j!=0).astype(np.uint8)
+            imgsHp_i += imgsHp_i_j
+            # maskCount += mask_i_j
+            n += 1
+        # plt.imshow(maskCount)
+        # plt.waitforbuttonpress()
+        # imgsHp_i/=maskCount.astype(np.float32)
+        imgsHp_i/=float(n)
+        imgsTempFilt = imgsHp_i + imgsLp_i
+        imgsOut[i,...]=imgsTempFilt
+    #loop
+    return imgsOut
