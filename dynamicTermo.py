@@ -12,6 +12,7 @@ import helpers_imgs
 from typedefs import *
 from globalVars import *
 from digStabilization import *
+from globalVars import Params
 
 """
     agrupa segun direccion, devuelve list de lista de indices
@@ -21,7 +22,6 @@ def ExtractSyncPulses (
     nFramesPerPulse:int, #//espaciado entre frames de inicio de pulsado
 	nDirections:int,#n switch dirs
 	nPulsesPerDirection:int,#normalmente 1, previas multiples
-	nPulsesPreserve:int,#normalmente el maximo posible
 	nPulsesSkip:int,#salta n pulsos iniciales
 	offsetStart:int #extension a preservar / corregir desviaciones sync
 )->list[int]:
@@ -74,7 +74,8 @@ def temporalAlignment (
         imgOut = cv.warpAffine(imgin, tf[:2,:], (imgOut.shape[1],imgOut.shape[0]), imgOut, cv.INTER_LINEAR, cv.BORDER_TRANSPARENT)
 
     i = offsetStart
-    iter = 0
+
+    #Masks copy full pulses
     maskCurr_b = np.zeros(imgRt.shape,dtype=bool)
     maskPrev_b = np.zeros(imgRt.shape,dtype=bool)
     
@@ -82,20 +83,21 @@ def temporalAlignment (
         imgRt*=0
         idActGroup = imgsIdx[i]
         tfImg(tfs[idActGroup], imgs[idActGroup], imgRt)
-        maskCurr_b = (imgRt>0).astype(np.uint8)
-        if i != offsetStart:
-            maskAux = maskCurr_b - maskPrev_b
-        else:
-            maskAux = np.copy(maskCurr_b)
-
-        maxId = min(nFramesFramesWindow, len(imgsIdx))
-        for idAct in range(i, maxId):
-            idActGroup = imgsIdx[idAct]
-            tfImg(tfs[idActGroup], imgs[idActGroup], imgRt)
-            cv.copyTo(imgRt, maskAux, out[idAct-i,...])#copia con mascara
-        plt.imshow(out[idAct-i,...])
-        plt.pause(0.1)
+        maskCurr_b = (imgRt > 0)
+        maskAux = np.bitwise_and(maskCurr_b, np.bitwise_not(maskPrev_b))
         
+        #Preview overlapping mask pulses
+        # plt.imshow(np.concatenate((maskCurr_b,maskPrev_b,maskAux,maskAuxNegated), axis=0))
+        # plt.waitforbuttonpress()
+
+        for j in range(0, nFramesFramesWindow):
+            if not ((i + j) < len(imgsIdx)):
+                break
+            idAct = i + j #id en subset del pulso
+            idActGroup = imgsIdx[idAct] #id img global raw
+            tfImg(tfs[idActGroup], imgs[idActGroup], imgRt) #a frame stitch
+            cv.copyTo(imgRt, maskAux.astype(np.uint8), out[j,...])#copia con mascara de pulsos completos
+
         #swap manual...
         temp = maskCurr_b
         maskCurr_b = maskPrev_b
@@ -104,8 +106,8 @@ def temporalAlignment (
         i += nFramesPerPulse
         if i>=len(imgsIdx):
             break
-    # //imgs.resize(nFramesFramesWindow)
-    # out.swap(imgs);
+    #loop
+        
     return out
 #temporalAlignment
 
@@ -140,12 +142,8 @@ def NormLockin (
                 aver_i -\
                 linear_ij
     return out
+#NormLockin
 
-class DynamicTermoPars:
-    nPulsesPerDirection = 1
-    nPulsesPreserve = 1
-    nPulseSkip=0
-    nDirections = 4
 
 
 
@@ -153,6 +151,8 @@ def dynamicTermo(
     imgs:np.ndarray,
     deltasLocal:np.ndarray) -> list[np.ndarray]:
     
+    #crop output
+    y0,y1,x0,x1 = Params.DynamicTermoPars.RoiCrop
     nFramesPerPulse = int(float(Params.Input.frameRate) / float(Params.Input.excFreq))
 
     print("dynamicTermo")
@@ -162,10 +162,9 @@ def dynamicTermo(
     #separate frames based on pulse direction
     idxGroups = ExtractSyncPulses(
         nImgs, nFramesPerPulse,
-        DynamicTermoPars.nDirections,
-        DynamicTermoPars.nPulsesPerDirection, 
-        DynamicTermoPars.nPulsesPreserve,
-        DynamicTermoPars.nPulseSkip, 0)
+        Params.DynamicTermoPars.nDirections,
+        Params.DynamicTermoPars.nPulsesPerDirection, 
+        Params.DynamicTermoPars.nPulseSkip, 0)
     
     #get bounding box stitched sequence and transform to global frame
     deltasTf = list[np.ndarray]()
@@ -174,19 +173,19 @@ def dynamicTermo(
     deltasTf, whDims = getDimsOffsetTfsImgs(deltasTf, h, w)
 
     #align subset frames and sync
-    nFramesPreserve = DynamicTermoPars.nPulsesPreserve * nFramesPerPulse
+    nFramesPreserve = Params.DynamicTermoPars.nPulsesPreserve * nFramesPerPulse
     imgsSynced = list[np.ndarray]()
     for i,group in enumerate(idxGroups):
         imSync = temporalAlignment(group, imgs, deltasTf, whDims, nFramesPerPulse, nFramesPreserve, 0)
-        imgsSynced.append(imSync)
-        cv.imwritemulti(f'{Params.outputDir}\\synced{i}.tiff',imSync)
+        imgsSynced.append(imSync[:,y0:y1,x0:x1])
+        cv.imwritemulti(f'{Params.outputDir}\\synced{i}.tiff',imgsSynced[-1])
     
     #Locking normalization / oscillating component
     imgsNorm = list[np.ndarray]()
     for i,imgs in enumerate(imgsSynced):
-        imNorm = NormLockin(imgs, DynamicTermoPars.nPulsesPreserve, nFramesPerPulse)
+        imNorm = NormLockin(imgs, Params.DynamicTermoPars.nPulsesPreserve, nFramesPerPulse)
         imgsNorm.append(imNorm)
-        cv.imwritemulti(f'{Params.outputDir}\\norm{i}.tiff',imNorm)
-    return imgsNorm
+        cv.imwritemulti(f'{Params.outputDir}\\norm{i}.tiff',imgsNorm[-1])
 
+    return imgsNorm
 #dynamicTermo

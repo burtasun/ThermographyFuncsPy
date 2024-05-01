@@ -17,6 +17,7 @@ def FFT(termo:np.ndarray, harmonicNum=0) -> [np.ndarray,np.ndarray]:
         dims = 1
     mag = np.sqrt(np.power(fftTermo.real,2) + np.power(fftTermo.imag,2)).astype(np.float32)
     pha = np.arctan2(fftTermo.real, fftTermo.imag).astype(np.float32)
+    pha = np.unwrap(np.unwrap(pha,axis=0),axis=1) #sensible a outliers en bordes! Unwrap-basura con paddings!
     return mag, pha
 
 

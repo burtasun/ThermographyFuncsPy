@@ -4,20 +4,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2 as cv
 import tifffile as tiff
+
 import thermo_io
 import thermo_procs
 import thermo_phase_shift
 import helpers_imgs
 
 from typedefs import *
-from globalVars import *
+from globalVars import ParamsClass, Params, initGlobalVars
+
 from basicFilters import *
 from fusedProcs import *
 from digStabilization import *
 from dynamicTermo import *
+from misc import *
 
 def iniEnv():
+    initGlobalVars()
     thermo_io.iniEnv()
+    if os.path.exists(Params.outputDir)==False:
+        os.mkdir(Params.outputDir)
+        if os.path.exists(Params.outputDir)==False:
+            raise(f"Could not locate output directory\n\t{Params.outputDir}")
 
 if __name__=='__main__':
     print('''
@@ -27,6 +35,8 @@ if __name__=='__main__':
 ''')
     iniEnv()
 
+    prof = helperProfile()
+
     tasks = Params.Tasks
 
     #READ INPUT
@@ -35,45 +45,52 @@ if __name__=='__main__':
         termos, acquisitionPeriods = thermo_io.loadThermo(f'{Params.Input.dirFiles}\\{fn}',1,1)
         dataInputs.append(termos[0])
         Params.Input.acquisitionPeriods = acquisitionPeriods
-    #TODO a params input
-    offsetFrame = 60*60+3#Params.Input.offFrames
-    dataInputs[0]=dataInputs[0][offsetFrame:,...][:240,...]
+    dataInputs[0]=dataInputs[0][Params.Input.offFrames:,...]
+    prof.ticTocProfile("Read")
 
     #REGISTER INPUT
     deltasReg = None
     if tasks.register:
         deltasReg = list[np.ndarray]()
         for data in dataInputs:
-            deltasReg.append(Register(data, False, False))
+            deltasReg.append(Register(data, False, True, smoothTrajectorySigma=0, descriptorType='AKAZE'))
     
         if Params.LogData.saveStitched:
-            for data,deltas in zip(dataInputs,deltasReg):
-                stitched = stitchImgs(data, deltas)
-                cv.imwritemulti(Params.outputDir + "\\stitchedSeq.tiff", stitched)
-                
+            helpers_imgs.saveStitched(dataInputs, deltasReg, Params.outputDir + "\\stitchedSeq.tiff")
+        prof.ticTocProfile("Register")
+
     for i, (data,deltas) in enumerate(zip(dataInputs,deltasReg)):
         dataInputs[i] = TempFilter(data,deltas,Params.tempFilterRadius)
-        
+    prof.ticTocProfile("TemporalFilter")
+
     if Params.LogData.saveStitched:
-        for data,deltas in zip(dataInputs,deltasReg):
-            stitched = stitchImgs(data, deltas)
-            cv.imwritemulti(Params.outputDir + "\\stitchedSeqFilt.tiff", stitched)
-    
-    #DYNAMIC TERMO
+        helpers_imgs.saveStitched(dataInputs,deltasReg,Params.outputDir + "\\stitchedSeqFilt.tiff")
+        prof.ticTocProfile("SaveStitched")
+
+    #DYNAMIC TERMO / sync and thermal drift compensation
     if tasks.dynamicTermo:
         dataDynamic = list[np.ndarray]()
         for i, (data, deltas) in enumerate(zip(dataInputs, deltasReg)):
             dataDynamic.extend(dynamicTermo(data, deltas))
         dataInputs = dataDynamic
-    
-    #PROC TERMO
-    procDataDict = ProcDict
-    if len(tasks.procTermo)>0:
-        procDataDict = thermo_procs.ProcTermo(dataInputs)
-    #POSTPROC TERMO
-    if tasks.postprocTermo:
-        procDataDict = PostProcTermo(procDataDict)
-    #FUSED PROC TERMO
+        prof.ticTocProfile("DynamicTermo")
+
+    #PREPROC TERMO
+    dataInputs = PreProcTermo(dataInputs)
+    prof.ticTocProfile("PreProcTermo")
+
+    #PROC TERMO / fft, pca, etc.
+    procDataDict = thermo_procs.ProcTermo(dataInputs)
+    prof.ticTocProfile("TermoProc")
+
+    #POSTPROC TERMO / filters
+    procDataDict = PostProcTermo(procDataDict)
+    prof.ticTocProfile("TermoPostProc")
+
+    #FUSED PROC TERMO / phase-shift
     fusedProcData = ProcDict()
     if len(tasks.fusedProcs)>0:
         fusedProcData = FusedProc(procDataDict)
+        prof.ticTocProfile("TermoFusedProc")
+
+    prof.printProfile()

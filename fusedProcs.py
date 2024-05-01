@@ -18,12 +18,11 @@ def PhaseShiftProc(imgs:list[np.ndarray])->np.ndarray:
     if Params.LogData.saveData:
         sampledPhaseShift = thermo_phase_shift.samplePhaseShift(psRet)
     flowAcc = thermo_phase_shift.PhaseShiftedOpticalFlow(psRet, None, True)
-    vorticity = thermo_phase_shift.IntegrateOpticalFlow(flowAcc, 21)
-    # vorticityTruncate = np.copy(vorticity)
-    # vorticityTruncate[vorticityTruncate<0] = 0
-    return vorticity                
+    vorticityAndDivergence = thermo_phase_shift.IntegrateOpticalFlow(flowAcc, 21)
+    return vorticityAndDivergence
 
 #PhaseShiftProc
+#TODO weighted sums / variance / etc.
 def FusedProc(procDict:ProcDict):
     print('[FusedProc]')
     #for each list[np.ndarray] -> np.ndarray
@@ -32,11 +31,11 @@ def FusedProc(procDict:ProcDict):
         imgs = procDict[procKey]
         for fuseProc in Params.Tasks.fusedProcs:
             if fuseProc == FusedProcs.PhaseShift:
-                fusedProc = PhaseShiftProc(imgs)
-                if fusedProc is None:
+                fusedProcImgs = PhaseShiftProc(imgs)
+                if fusedProcImgs is None:
                     continue
                 keySave = f'{procKey}_{str(fuseProc)}'
-                fusedProcDict[keySave] = [fusedProc]
+                fusedProcDict[keySave] = fusedProcImgs
             #FusedProcs.PhaseShift
         #Params.Tasks.fusedProcs
     #procDict

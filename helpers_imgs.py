@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import cv2 as cv
 import math
 
+from digStabilization import *
 from typedefs import *
 
 def ConvertToMaxContrastUchar(imgRAW:np.ndarray, minMaxV = None) -> np.ndarray:
@@ -68,3 +69,9 @@ def saveImgDict(imageDict:ProcDict,logPath:str,logPrefixName:str):
             imgsVis = helpers_imgs.ConvertToMaxContrastUchar(np.concatenate(\
                 imageDict[procKey], axis=1))
             cv.imwrite(f'{logPath}\\{procKey}_byte.jpg',imgsVis)
+
+def saveStitched(framesLists:np.ndarray,deltasReg:list[np.ndarray], absPath:str):
+    for data,deltas in zip(framesLists,deltasReg):
+        stitched = stitchImgs(data, deltas)
+    cv.imwritemulti(absPath, stitched)
+#saveStitched

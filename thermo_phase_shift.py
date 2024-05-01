@@ -88,14 +88,12 @@ def samplePhaseShift(phaseShiftPars:PhaseShiftRet, nFrames = 36, noMean = True):
 
     deltaRad = 2. * math.pi / float(nFrames)
 
-    samples = np.zeros(phaseShiftPars.psampl.shape + (nFrames,), np.float32)
+    samples = np.zeros((nFrames,) + phaseShiftPars.psampl.shape, np.float32)
     for i in range(0,nFrames):
         val = cosineImg(phaseShiftPars.psampl,phaseShiftPars.pspolar, float(i)*deltaRad)
         if noMean == False:
             val+=phaseShiftPars.psmean
-        # print(f'{val.shape}')
-        # plt.imshow(val)
-        # plt.waitforbuttonpress()
+        samples[i,...] = val
     return samples
 
 
@@ -242,6 +240,15 @@ def IntegrateOpticalFlow(flowAcc:np.ndarray, winSz = 11):
     #   as 2D filter subtraction
     yxCompCross = cv.filter2D(flowAcc[:,:,1],cv.CV_32F, rij[:,:,0])
     xyCompCross = cv.filter2D(flowAcc[:,:,0],cv.CV_32F, rij[:,:,1])
-    outputCross = xyCompCross - yxCompCross
+    vorticity = xyCompCross - yxCompCross
 
-    return outputCross
+    #divergence
+    yxCompDot = cv.filter2D(flowAcc[:,:,0],cv.CV_32F, rij[:,:,0])
+    xyCompDot = cv.filter2D(flowAcc[:,:,1],cv.CV_32F, rij[:,:,1])
+    divergence = xyCompDot - yxCompDot
+
+    #flow magnitude
+    flowAmpl = np.linalg.norm(flowAcc,2,axis=2)
+    flowAmplAver = cv.blur(flowAmpl, (winSz,winSz)) #niapa burda
+    
+    return [vorticity,divergence, flowAmplAver]

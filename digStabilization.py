@@ -82,14 +82,20 @@ class Matcher:
     def iniDescriptorAndMatcher(DescriptorType):
         #TODO parametrizar...
         if DescriptorType == 'AKAZE':
-            kpDetectAndDescriptor = cv.AKAZE.create(\
-                descriptor_type=cv.AKAZE_DESCRIPTOR_MLDB_UPRIGHT,\
-                threshold=0.05,\
-                max_points=-1)
             matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False) #descriptor binario / dist hamming 
             norm2Byte = False
+            kpDetectAndDescriptor = cv.AKAZE.create(\
+                descriptor_type=cv.AKAZE_DESCRIPTOR_MLDB_UPRIGHT,\
+                threshold=0.001,\
+                diffusivity=cv.KAZE_DIFF_PM_G2,
+                max_points=-1)
+        elif DescriptorType == 'KAZE':
+            matcher = cv.BFMatcher()
+            norm2Byte = False
+            kpDetectAndDescriptor = cv.KAZE.create(\
+                extended=True, upright=True, threshold=0.001)
         elif DescriptorType == 'SIFT':
-            kpDetectAndDescriptor = cv.SIFT.create(nfeatures=0,contrastThreshold=0.04)
+            kpDetectAndDescriptor = cv.SIFT.create(nfeatures=0,contrastThreshold=0.001)
             matcher = cv.BFMatcher()
             norm2Byte = True
         else:
@@ -100,6 +106,7 @@ class Matcher:
     def __init__(self, DescriptorType:str) -> None:
         #detect kps and compute descriptor
         self.kpDetectAndDescriptor, self.matcher, self.norm2Byte = Matcher.iniDescriptorAndMatcher(DescriptorType)
+        self.minPtsRegistered = 9e9
 
     def setRefimg(self, img:np.ndarray):
         if self.norm2Byte:
@@ -109,7 +116,8 @@ class Matcher:
         self.kpRef, self.desRef = self.kpDetectAndDescriptor.detectAndCompute(self.imgRef, None)
 
     def imgToByte(img):
-        return (255.0*(img-np.percentile(img,0.01))/(np.percentile(img,99.99)-np.percentile(img,0.01))).astype(np.uint8)
+        return np.clip((255.0*(img-np.percentile(img,0.01))/(np.percentile(img,99.99)-np.percentile(img,0.01))),
+                       0,255).astype(np.uint8)
             
     """
     distRatioMatch, ratio dist kNn1 Vs Knn2, proximidad relativa distrib
@@ -136,21 +144,6 @@ class Matcher:
                 pts.append(kpsMatch[m.trainIdx].pt)
                 count += 1
         
-        ptsRef = np.array(ptsRef)
-        pts = np.array(pts)
-
-        if count > minPtsMatch:
-            #niap opencv no tiene estimacion traslacion 2D
-            print(f'npts {ptsRef.shape[0]}')
-            ptsRef_3d = np.zeros((ptsRef.shape[0],3),np.float32)
-            ptsRef_3d[:,:2] = ptsRef
-            pts_3d = np.zeros((pts.shape[0],3),np.float32)
-            pts_3d[:,:2] = pts
-            ret, trans3D, _ = cv.estimateTranslation3D(ptsRef_3d, pts_3d, ransacThreshold=ransacThresh, confidence=confidence)
-            if ret == 0:
-                print('match unsucsessfull')
-                return None
-        
         if showMatches:
             imgRefVis = Matcher.imgToByte(self.imgRef)
             img2MatchVis = Matcher.imgToByte(img2Match)
@@ -160,15 +153,33 @@ class Matcher:
             plt.imshow(imgMatches,cmap='gray')
             plt.waitforbuttonpress()
         
+        ptsRef = np.array(ptsRef)
+        pts = np.array(pts)
+        trans3D = None
+        self.minPtsRegistered = min(self.minPtsRegistered, count)
+        if count > minPtsMatch:
+            #niap opencv no tiene estimacion traslacion 2D
+            print(f'npts {ptsRef.shape[0]}, total points {len(self.kpRef)} and {len(kpsMatch)}, minPtsRegistered{self.minPtsRegistered}')
+            ptsRef_3d = np.zeros((ptsRef.shape[0],3),np.float32)
+            ptsRef_3d[:,:2] = ptsRef
+            pts_3d = np.zeros((pts.shape[0],3),np.float32)
+            pts_3d[:,:2] = pts
+            ret, trans3D, _ = cv.estimateTranslation3D(ptsRef_3d, pts_3d, ransacThreshold=ransacThresh, confidence=confidence)
+            if ret == 0:
+                print('point ramsac match unsuccessfull')
+                return None
+        else:
+            print(f'insufficient neighbouring points {count} < {minPtsMatch}, total points {len(self.kpRef)} and {len(kpsMatch)}')
+            return None
+        
         return trans3D.flatten()[:2].reshape((1,2))
 
 
 class RegisterPars:
-    subSampleReg = 1#1: no sub, 2: skips 1 frame / half, etc.
     maxFramesBackReg = 300# pair-wise registration of sequence-> (i,i-(i%maxFramesBackReg-1))
 
 #rough approximation
-def highPassFilter(img:np.ndarray, kSize = 11)->np.ndarray:
+def highPassFilter(img:np.ndarray, kSize = 21)->np.ndarray:
     if kSize<3:
         return img
     #low-pass substraction as mean filter
@@ -182,11 +193,12 @@ TODO post-proc traj
 TODO others... bi-directional reg, etc. / sparse BA??
 '''
 def Register(
-    imgs:list[np.ndarray],
+    imgs:np.ndarray,
     viewMatches = False,
     plotTrajectory = False,
     registerPars = RegisterPars(),
-    smoothTrajectorySigma = 2
+    smoothTrajectorySigma = 0,
+    descriptorType ="AKAZE"
 ) -> np.ndarray:
     
     if registerPars is None:
@@ -198,7 +210,8 @@ def Register(
     #SIFT or AKAZE
     # SIFT implemented only on 8bits!
     # AKAZE robust / relatively fast
-    matcher = Matcher('SIFT')
+    # KAZE robust / slow
+    matcher = Matcher(descriptorType)
     #save recurrent kp / descrip compute
     #   "highpass" mitigates information loss on 8 bit normalization
     matcher.setRefimg(highPassFilter(imgs[0,...]))
@@ -210,7 +223,7 @@ def Register(
         if ((i%registerPars.maxFramesBackReg)==0):
             iref = i-1
             matcher.setRefimg(highPassFilter(imgs[iref,...]))#sucesivamente hereda errores locales, diverge mucho, en su lugar maximizamos distancia / solape 50% suficiente, OK
-        trans_i_iref = matcher.matchImg(highPassFilter(imgs[i,...]), 0.5, 10, 1, showMatches=viewMatches)
+        trans_i_iref = matcher.matchImg(highPassFilter(imgs[i,...]), 0.75, 10, 1, showMatches=viewMatches)
         if trans_i_iref is None:
             print(f'image {i} regarding {iref}, does not have a match, using previous translation')
             deltas[i,...] = deltas[i-1,...]
@@ -218,6 +231,7 @@ def Register(
         else:
             deltas[i,...] = trans_i_iref + deltas[iref,...] #regarding frame 0
     deltas = SmoothTrajectory(deltas, smoothTrajectorySigma, plotTrajectory)
+    print(f'failed matches {countFailedMatches} / {imgs.shape[0]}')
     return deltas
 #Register
 
@@ -228,6 +242,7 @@ def SmoothTrajectory(deltas:np.ndarray, sigma, plotTrajectory=True):
     else:
         deltasFiltered = ndimage.gaussian_filter1d(deltas, sigma=sigma, axis=0, mode='nearest')
     if plotTrajectory:
+        plt.close()
         plt.plot(deltas[:,0],deltas[:,1],label='Reg Trajectory')        
         plt.plot(deltasFiltered[:,0],deltasFiltered[:,1],label='Reg Trajectory Filt')
         plt.legend()
@@ -243,6 +258,7 @@ if __name__=='__main__':
 
 #Temp filter 
 #   promedia componente alta freq con frames adyacentes roto-trasladados
+#   dimensiones frames identicas a raw
 def TempFilter(\
     imgs:np.ndarray,
     deltas:list[np.ndarray] | None,
