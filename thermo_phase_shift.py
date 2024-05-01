@@ -234,28 +234,14 @@ def IntegrateOpticalFlow(flowAcc:np.ndarray, winSz = 11):
     rij = np.zeros([b*2+1,b*2+1,2],np.float32)
     for i in range(-b,b + 1): #row,y
         for j in range(-b,b + 1): #col,x
-            if i==0 and j==0:
-                continue #null
+            if i==0 and j==0: continue
             rij[i+b,j+b,0] = float(j) / math.sqrt(float(i) * float(i) + float(j) * float(j))
             rij[i+b,j+b,1] = float(i) / math.sqrt(float(i) * float(i) + float(j) * float(j))
 
     #vorticity
-    output = np.zeros((flowAcc.shape[0],flowAcc.shape[1],1),np.float32)
+    #   as 2D filter subtraction
+    yxCompCross = cv.filter2D(flowAcc[:,:,1],cv.CV_32F, rij[:,:,0])
+    xyCompCross = cv.filter2D(flowAcc[:,:,0],cv.CV_32F, rij[:,:,1])
+    outputCross = xyCompCross - yxCompCross
 
-    #TODO degenerate kernel!
-    for row in range(b,flowAcc.shape[0]+b):
-        for col in range(b,flowAcc.shape[1]+b):
-            v = 0.0
-            for i in  range(-b, b + 1):
-                for j in  range(-b, b + 1):
-                    if i==0 and j==0:
-                        continue #null
-                    crossRij = \
-                    	rij[i + b, j + b, 1] * uv[row + i, col + j, 0] - \
-                    	rij[i + b, j + b, 0] * uv[row + i, col + j, 1]
-                    v+=crossRij
-            output[row-b,col-b] = v
-
-    plt.imshow(output)
-    plt.waitforbuttonpress()
-    return output
+    return outputCross
