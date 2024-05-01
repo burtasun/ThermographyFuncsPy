@@ -11,24 +11,13 @@ import helpers_imgs
 
 from typedefs import *
 from globalVars import *
-from postProcTermo import *
+from basicFilters import *
 from fusedProcs import *
 from digStabilization import *
+from dynamicTermo import *
+
 def iniEnv():
     thermo_io.iniEnv()
-
-
-
-def DynamicTermo():
-    print('[DynamicTermo] not implemented')
-    return None
-#DynamicTermo
-def PreProcTermo(procDict:ProcDict):
-    print('[PreProcTermo] not implemented')
-    return None
-#PreProcTermo 
-
-
 
 if __name__=='__main__':
     print('''
@@ -46,25 +35,37 @@ if __name__=='__main__':
         termos, acquisitionPeriods = thermo_io.loadThermo(f'{Params.Input.dirFiles}\\{fn}',1,1)
         dataInputs.append(termos[0])
         Params.Input.acquisitionPeriods = acquisitionPeriods
+    #TODO a params input
+    offsetFrame = 60*60+3#Params.Input.offFrames
+    dataInputs[0]=dataInputs[0][offsetFrame:,...][:240,...]
+
     #REGISTER INPUT
     deltasReg = None
     if tasks.register:
         deltasReg = list[np.ndarray]()
         for data in dataInputs:
-            deltasReg.append(Register(data, False, True))
+            deltasReg.append(Register(data, False, False))
+    
+        if Params.LogData.saveStitched:
+            for data,deltas in zip(dataInputs,deltasReg):
+                stitched = stitchImgs(data, deltas)
+                cv.imwritemulti(Params.outputDir + "\\stitchedSeq.tiff", stitched)
+                
+    for i, (data,deltas) in enumerate(zip(dataInputs,deltasReg)):
+        dataInputs[i] = TempFilter(data,deltas,Params.tempFilterRadius)
+        
+    if Params.LogData.saveStitched:
+        for data,deltas in zip(dataInputs,deltasReg):
+            stitched = stitchImgs(data, deltas)
+            cv.imwritemulti(Params.outputDir + "\\stitchedSeqFilt.tiff", stitched)
+    
     #DYNAMIC TERMO
     if tasks.dynamicTermo:
-        for data in dataInputs:
-            data = DynamicTermo(data, Params.DynamicTermoPars)
-    elif deltasReg is not None:
-        for data,deltas in zip(dataInputs,deltasReg):
-            data = stitchImgs(data, deltas)
-            cv.imwritemulti(Params.outputDir + "\\stitchedSeq.tiff", data)
-
-    #PREPROC TERMO
-    if tasks.dynamicTermo:
-        for data in dataInputs:
-            data = PreProcTermo(data, Params.DynamicTermoPars)
+        dataDynamic = list[np.ndarray]()
+        for i, (data, deltas) in enumerate(zip(dataInputs, deltasReg)):
+            dataDynamic.extend(dynamicTermo(data, deltas))
+        dataInputs = dataDynamic
+    
     #PROC TERMO
     procDataDict = ProcDict
     if len(tasks.procTermo)>0:

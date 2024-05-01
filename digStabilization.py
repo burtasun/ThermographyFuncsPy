@@ -8,6 +8,8 @@ import thermo_io
 import thermo_procs
 import thermo_phase_shift
 import helpers_imgs
+from scipy import ndimage
+
 from globalVars import *
 from typedefs import *
 
@@ -54,8 +56,10 @@ def displacementToHomogMat(disp):
 
 def stitchImgs(
     imgs:np.ndarray,
-    deltas:np.ndarray
+    deltas:np.ndarray | None
 )->np.ndarray:
+    if deltas is None:
+        return imgs
     # stitching en unico frame superponiendo imagenes
     nImgs,h,w=imgs.shape
     nImgs = min(nImgs,deltas.shape[0])
@@ -181,7 +185,8 @@ def Register(
     imgs:list[np.ndarray],
     viewMatches = False,
     plotTrajectory = False,
-    registerPars = RegisterPars()
+    registerPars = RegisterPars(),
+    smoothTrajectorySigma = 2
 ) -> np.ndarray:
     
     if registerPars is None:
@@ -212,57 +217,66 @@ def Register(
             countFailedMatches+=1
         else:
             deltas[i,...] = trans_i_iref + deltas[iref,...] #regarding frame 0
-    if plotTrajectory:
-        plt.close()
-        plt.scatter(deltas[:,0],deltas[:,1])
-        plt.plot(deltas[:,0],deltas[:,1],label="Registration Trajectory")
-        plt.show()
-        plt.close()
+    deltas = SmoothTrajectory(deltas, smoothTrajectorySigma, plotTrajectory)
     return deltas
 #Register
+
+
+def SmoothTrajectory(deltas:np.ndarray, sigma, plotTrajectory=True):
+    if sigma<1:
+        deltasFiltered = deltas
+    else:
+        deltasFiltered = ndimage.gaussian_filter1d(deltas, sigma=sigma, axis=0, mode='nearest')
+    if plotTrajectory:
+        plt.plot(deltas[:,0],deltas[:,1],label='Reg Trajectory')        
+        plt.plot(deltasFiltered[:,0],deltasFiltered[:,1],label='Reg Trajectory Filt')
+        plt.legend()
+        plt.show()
+    return deltasFiltered
+
+if __name__=='__main__':
+    accDeltas = np.stack(\
+        (np.linspace(2,20-1,18),
+         np.linspace(0,2-1,18))).astype(np.float32)
+    SmoothTrajectory(accDeltas, 4)
 
 
 #Temp filter 
 #   promedia componente alta freq con frames adyacentes roto-trasladados
 def TempFilter(\
     imgs:np.ndarray,
-    deltas:list[np.ndarray],
+    deltas:list[np.ndarray] | None,
     averageRad = 2,
     kMeanBlur = 11
 ) -> np.ndarray:
 
+    if averageRad <=0:
+        return imgs
+    
     nImgs,h,w=imgs.shape
     b = averageRad
     k = kMeanBlur
     imgsOut = np.zeros(imgs.shape,np.float32)
+
+    if deltas is None:
+        deltas=np.split(np.zeros((imgs.shape[0],2),np.float32),imgs.shape[0],axis=0) #TODO niapa
    
     for i in range(imgs.shape[0]):
-        delta_0_i = deltas[i]
-        imgsHp_i = highPassFilter(imgs[i,...],k)
+        imgsHp_i = list[np.ndarray]()
+        imgsHp_i.append(highPassFilter(imgs[i,...],k))
         imgsLp_i = cv.blur(imgs[i,...],(k, k))
-        #solape variable, normalizacion en funcion de imagenes solapadas por pixel
-        # maskCount = (imgsHp_i!=0).astype(np.uint8)
-        n = 1
         for j in range(max(0,i-b),min(i+b+1,len(deltas))):
             if j==i:
                 continue
-            tf_0_j = displacementToHomogMat(deltas[j])
-            tf_0_i = displacementToHomogMat(deltas[i])
-            tf_i_j = np.linalg.inv(np.linalg.inv(tf_0_i) @ tf_0_j)
-            # tf_i_j = np.linalg.inv(tf_0_i) @ tf_0_j
-            print(tf_i_j[:2,2].T,np.linalg.inv(tf_0_i)[:2,2].T,tf_0_j[:2,2].T)
+            tf_i_j = displacementToHomogMat(deltas[i]-deltas[j])
             imgsHp_j = highPassFilter(imgs[j,...])
             imgsHp_i_j = cv.warpAffine(imgsHp_j , tf_i_j[:2,...], (w,h), None, 
                 borderValue=0, borderMode=cv.BORDER_CONSTANT,
                 flags=cv.INTER_LINEAR)
-            mask_i_j = (imgsHp_i_j!=0).astype(np.uint8)
-            imgsHp_i += imgsHp_i_j
-            # maskCount += mask_i_j
-            n += 1
-        # plt.imshow(maskCount)
-        # plt.waitforbuttonpress()
-        # imgsHp_i/=maskCount.astype(np.float32)
-        imgsHp_i/=float(n)
+            imgsHp_i.append(imgsHp_i_j)
+        imgsHp_i = np.array(imgsHp_i)
+        #Median excludes outlier/non conforming pixels from mean / and avoids overlap window masking
+        imgsHp_i = np.median(imgsHp_i,axis=0)
         imgsTempFilt = imgsHp_i + imgsLp_i
         imgsOut[i,...]=imgsTempFilt
     #loop
