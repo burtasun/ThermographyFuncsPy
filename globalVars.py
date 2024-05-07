@@ -41,10 +41,11 @@ class ParamsClass:
         betasDeg=[0,45,90,135]
 
         #from itvis container / TODO extraer de contenedor
-        acquisitionPeriods = 1
+        acquisitionPeriods = 3
         frameRate = 300
-        acqPeriods = 144
         excFreq = 5.0
+        dutyRatio = 0.5
+
     Input = InputPars()
     
     class LogData:
@@ -56,7 +57,7 @@ class ParamsClass:
         register = True #local stabilization
         dynamicTermo = True #sync multi-pulses
         postprocTermo = True
-        procTermo = [Procs.FFT]
+        procTermo = [Procs.FFT, Procs.HOS]
         fusedProcs = []#all procTermo are processed in groups
         fusedProcs = [FusedProcs.PhaseShift]#all procTermo are processed in groups
     Tasks = TasksClass()
@@ -71,7 +72,7 @@ class ParamsClass:
     DynamicTermoPars=DynamicTermo()
 
     class PreprocTermo:
-        averagePulses = False
+        averagePulses = True
     PreprocTermoPars = PreprocTermo()
     
     class PostprocTermo:
