@@ -57,7 +57,7 @@ class ParamsClass:
         register = True #local stabilization
         dynamicTermo = True #sync multi-pulses
         postprocTermo = True
-        procTermo = [Procs.FFT, Procs.HOS]
+        procTermo = [Procs.FFT, Procs.HOS, Procs.PCA]
         fusedProcs = []#all procTermo are processed in groups
         fusedProcs = [FusedProcs.PhaseShift]#all procTermo are processed in groups
     Tasks = TasksClass()

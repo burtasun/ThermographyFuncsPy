@@ -41,8 +41,8 @@ def FFT_Wrap(imgsList:np.ndarray, acquisitionPeriods:int)->tuple[np.ndarray,np.n
 #   Madruga 2010
 def HOS(
     imgsIn:np.ndarray,
-    dutyRatio:np.ndarray
-) -> tuple(np.ndarray,np.ndarray,np.ndarray,np.ndarray):
+    dutyRatio:float
+) -> tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
     """
     Higher order statistics of temporal axis
 
@@ -94,7 +94,7 @@ def HOS(
 
     return termMean, stdDev, kurtosis, skewness
 #HOS
-def HOS_Wrap(imgsList:np.ndarray, dutyRatio:int)->tuple[np.ndarray,np.ndarray]:
+def HOS_Wrap(imgsList:np.ndarray, dutyRatio:int)->ProcDict:
     print('ProcTermo, Procs.HOS')
     orderedNames = ["HOS_mean","HOS_stdDev","HOS_kurtosis","HOS_skewness"]
     dictRet = ProcDict()
@@ -105,6 +105,89 @@ def HOS_Wrap(imgsList:np.ndarray, dutyRatio:int)->tuple[np.ndarray,np.ndarray]:
             dictRet[key].append(ret)
     return dictRet
 #HOS_Wrap
+
+
+#PCA convencional covarianza eje temporal
+def PCA(
+    imgs:np.ndarray,
+    nComponents:int,
+    ratioCovariance = 1.0
+) -> list[np.ndarray]:
+    """
+    Principal component analysis
+
+    Parameters
+    ----------
+    * imgs[nImgs,Height,Width]
+    * nComponents, number of components, typical values for pulsed thermographies, 3-5
+    * ratioVariance, alternatively deduce nComponents (nComponents <=0 )
+
+    Return
+    ------
+    ret = list[np.ndarray] -> len(ret)=pca_nComponents
+    """
+
+    p,h,w = imgs.shape
+
+    #media de columnas
+    termMean = np.mean(imgs,axis=0)
+    #termo centrado
+    imgsNoMean = (imgs - np.repeat(termMean,p).reshape((h,w,p)).transpose((2,0,1))
+                  ).transpose((1,2,0))#aplanamiento npx X t
+    B = imgsNoMean.reshape(h*w,p)
+
+    i, j = 10,20
+    a = np.mean(imgsNoMean[i,j,:])
+    b = np.mean(B[i*w+j,:])
+    print(a, b)
+
+    #covarianza
+    C = B.transpose() @ B # p X p
+    #svd
+    try:
+        U, S, VT = np.linalg.svd(C, False, True)
+    except np.linalg.LinAlgError:
+        print("Did not converge")
+        exit(0)
+    print(f'{U.shape}')
+    print(f'{S.shape}')
+    print(f'{VT.shape}')
+
+    #Determinar numero de componentes
+    l = 1; #nComponents
+    ratioCovariance = max(0.0, min(ratioCovariance, 1.0))
+    if nComponents > 0:
+        l = min(nComponents, U.shape[1])
+    elif ratioCovariance == 1.0:
+        l = U.shape[1]
+    else:
+        #Ratio contribucion de cada componente
+        #    Total de las componentes
+        allComp = S.cumsum()
+        for j in S.shape[0]:
+            if (allComp[j] / allComp[-1]) >= ratioCovariance:
+                l = j
+                break
+    # primeras l columnas
+    W = U[:, :l];#p X l Mf W = U.topLeftCorner(U.rows(), l);//p X l
+    #proyectar en base 
+    T = B @ W;#p X l
+    #Convertir a imagen
+    T_3D = np.split(T.reshape((h,w,l)),l,axis=2)
+    return T_3D
+#PCA
+def PCA_Wrap(imgsList:np.ndarray, nComponents:int)->ProcDict:
+    print('ProcTermo, Procs.PCA')
+    dictRet = ProcDict()
+    for imgs in imgsList:
+        retTuple = PCA(imgs, nComponents)
+        for i,ret in enumerate(retTuple):
+            if not (f'PCA_{i}' in dictRet):
+                dictRet[f'PCA_{i}']=list()
+            dictRet[f'PCA_{i}'].append(ret)
+    return dictRet
+#PCA_Wrap
+
     
 
 
@@ -126,7 +209,7 @@ def ProcTermo(
         if ProcType == Procs.HOS:
             outputDictRets.append(HOS_Wrap(termos,Params.Input.dutyRatio))
         if ProcType == Procs.PCA:
-            print('ProcTermo, Procs.PCA not implemented!')
+            outputDictRets.append(PCA_Wrap(termos, 10))
         if ProcType == Procs.PCT:
             print('ProcTermo, Procs.PCT not implemented!')
         if ProcType == Procs.SenoidalFit:
