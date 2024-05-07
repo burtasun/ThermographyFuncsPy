@@ -189,6 +189,40 @@ def PCA_Wrap(imgsList:np.ndarray, nComponents:int)->ProcDict:
 #PCA_Wrap
 
     
+#PCA convencional covarianza eje temporal
+def deltaT(
+    imgs:np.ndarray,
+    dutyRatio = 0.5
+) -> np.ndarray:
+    """
+    Delta T
+
+    Parameters
+    ----------
+    * imgs[nImgs,Height,Width]
+    * dutyRatio, pulsed thermography, dutyRatio
+
+    Return
+    ------
+    ret = list[np.ndarray]
+    """
+
+    dutyRatio = min(1.0,max(0.0,dutyRatio))
+    frameCool = 0
+    frameMaxHeat = int(imgs.shape[0]*dutyRatio)
+    return [imgs[frameCool,...]-imgs[frameMaxHeat,...]]
+#deltaT
+def deltaT_Wrap(imgsList:list[np.ndarray], dutyRatio:int)->ProcDict:
+    print('ProcTermo, Procs.deltaT')
+    dictRet = ProcDict()
+    for imgs in imgsList:
+        retTuple = deltaT(imgs, dutyRatio)
+        for i,ret in enumerate(retTuple):
+            if not (f'DeltaT_{i}' in dictRet):
+                dictRet[f'DeltaT_{i}']=list()
+            dictRet[f'DeltaT_{i}'].append(ret)
+    return dictRet
+#deltaT_Wrap
 
 
 '''ProcTermo / WRAP CALL FUNCS
@@ -205,7 +239,7 @@ def ProcTermo(
         if ProcType == Procs.FFT: #keys FFT_Phase, FFT_Mag
             outputDictRets.append(FFT_Wrap(termos, Params.Input.acquisitionPeriods))
         if ProcType == Procs.DeltaT:
-            print('ProcTermo, Procs.DeltaT not implemented!')
+            outputDictRets.append(deltaT_Wrap(termos,Params.Input.dutyRatio))
         if ProcType == Procs.HOS:
             outputDictRets.append(HOS_Wrap(termos,Params.Input.dutyRatio))
         if ProcType == Procs.PCA:
