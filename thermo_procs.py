@@ -189,7 +189,7 @@ def PCA_Wrap(imgsList:np.ndarray, nComponents:int)->ProcDict:
 #PCA_Wrap
 
     
-#PCA convencional covarianza eje temporal
+#deltaT
 def deltaT(
     imgs:np.ndarray,
     dutyRatio = 0.5
@@ -225,6 +225,91 @@ def deltaT_Wrap(imgsList:list[np.ndarray], dutyRatio:int)->ProcDict:
 #deltaT_Wrap
 
 
+#RAJIK 2002
+#   TODO check results with C++ code
+def PCT(
+    imgs:np.ndarray,
+    nComponents = 3,
+    temporalNorm = True
+) -> np.ndarray:
+    """
+    PCT, RAJIK 2002
+    differs from PCA, on the pre-normalization and the svd on the tensor itself, instead of subsequent projection
+
+    Parameters
+    ----------
+    * imgs[nImgs,Height,Width]
+    * nComponents
+    * temporalNorm, covar t X t, otherwise w*h X w*h (SLOW)
+
+    Return
+    ------
+    ret = list[np.ndarray]
+    """
+    n, h, w = imgs.shape
+    # imgsFlat = imgs.transpose((1,2,0)).reshape((h*w,n))
+
+    #Normalizacion / temporal o espacial, temporal es marginalmente mejor
+    # if temporalNorm: #temporal
+    if True: #temporal
+        #    media 
+        termMean = np.mean(imgs,axis=0)
+        #x-mu
+        imgsNoMean = imgs - np.repeat(termMean,n).reshape((h,w,n)).transpose((2,0,1))#repeat on last dim, permute temporal axis to 1st dim as usual
+        
+        #(((sigma (x-mu)^2)/n)^.5)
+        stdDev =\
+            np.sqrt(
+                np.mean(
+                    np.power(imgsNoMean,2), axis=0))
+        thermSeqNorm = imgsNoMean / np.repeat(stdDev,n).reshape((h,w,n)).transpose((2,0,1))
+
+    # else:#espacial
+    #     #    media
+    #     Mf u_mean = thermSeq.colwise().mean();
+    #     #    desvest
+    #     Mf thermSeqNoMean = thermSeq - Mf::Ones(n, 1) * u_mean;
+    #     Mf variance = thermSeqNoMean.array().pow(2.f).matrix().colwise().mean().array().sqrt().matrix();#t X 1
+    #     thermSeqNorm = thermSeqNoMean.array() / (Mf::Ones(n, 1) * variance).array();
+    #     cout << "Variance " << variance.rows() << " " << variance.cols() << "\n";
+    # }
+    assert (\
+        thermSeqNorm.shape[0] == n and \
+        thermSeqNorm.shape[1] == h and \
+        thermSeqNorm.shape[2] == w)
+        
+    thermSeqNorm_flat = thermSeqNorm.transpose((1,2,0)).reshape(h*w,n)
+
+    #SVD
+    try:
+        U, S, VT = np.linalg.svd(thermSeqNorm_flat, False, True)
+    except np.linalg.LinAlgError:
+        print("Did not converge")
+        exit(0)
+    print(f'{U.shape}')
+    print(f'{S.shape}')
+    print(f'{VT.shape}')
+
+    l = min(n,max(2,nComponents))
+    W = U[:,:l]#w*h X l
+    W_3D = np.split(W.reshape((h,w,l)),l,axis=2)
+    return W_3D
+#PCT
+
+def PCT_Wrap(imgsList:list[np.ndarray], nComponents = 3)->ProcDict:
+    print('ProcTermo, Procs.PCT')
+    dictRet = ProcDict()
+    for imgs in imgsList:
+        retTuple = PCT(imgs, nComponents, True)
+        for i,ret in enumerate(retTuple):
+            if not (f'PCT_{i}' in dictRet):
+                dictRet[f'PCT_{i}']=list()
+            dictRet[f'PCT_{i}'].append(ret)
+    return dictRet
+#PCT_Wrap
+
+
+
 '''ProcTermo / WRAP CALL FUNCS
 TODO implement procs
 TODO visualization / debug / log
@@ -245,7 +330,7 @@ def ProcTermo(
         if ProcType == Procs.PCA:
             outputDictRets.append(PCA_Wrap(termos, 10))
         if ProcType == Procs.PCT:
-            print('ProcTermo, Procs.PCT not implemented!')
+            outputDictRets.append(PCT_Wrap(termos, 3))
         if ProcType == Procs.SenoidalFit:
             print('ProcTermo, Procs.SenoidalFit not implemented!')
         if ProcType == Procs.TSR:
