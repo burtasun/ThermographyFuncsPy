@@ -63,12 +63,9 @@ def saveImgDict(imageDict:ProcDict,logPath:str,logPrefixName:str):
         print(f'saveImgDict logPath invalid!\n\t{logPath}')
     else:
         for procKey in imageDict:
-            #raw
             cv.imwritemulti(f'{logPath}\\{logPrefixName}_{procKey}.tiff',imageDict[procKey])
-            #visible
-            imgsVis = helpers_imgs.ConvertToMaxContrastUchar(np.concatenate(\
-                imageDict[procKey], axis=1))
-            cv.imwrite(f'{logPath}\\{procKey}_byte.jpg',imgsVis)
+            cv.imwritemulti(f'{logPath}\\{logPrefixName}_{procKey}_byte.jpg',\
+                helpers_imgs.ConvertToMaxContrastUchar(np.array(imageDict[procKey],np.float32)))
 
 def saveStitched(framesLists:np.ndarray,deltasReg:list[np.ndarray], absPath:str):
     for data,deltas in zip(framesLists,deltasReg):

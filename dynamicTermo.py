@@ -112,15 +112,39 @@ def temporalAlignment (
 #temporalAlignment
 
 
+def normAmplitudes(
+    imgs:np.ndarray,
+    npulses:int,
+    nFramesPerPulse:int
+):
+    pulseDeltas = []
+    for i in range(npulses):
+        pulseDeltas.append(\
+            imgs[i*nFramesPerPulse+nFramesPerPulse//2-1,...]-
+            imgs[i*nFramesPerPulse,...]
+        )
+    pulseDeltasAverage = pulseDeltas[-1]#np.mean(pulseDeltas,axis=0)
+    pulseDeltas = np.array(pulseDeltas)
+    cv.imwritemulti(r'C:\Users\benat\source\repos\ThermographyFuncsPy\out\Billet'+f'\\pulseDeltas.tiff',pulseDeltas)
+
+    pulseDeltasFactors = np.zeros(pulseDeltas.shape,pulseDeltas.dtype)
+    for i in range(npulses):
+        pulseDeltasFactors[i,...]=pulseDeltas[i,...]/pulseDeltasAverage
+    cv.imwritemulti(r'C:\Users\benat\source\repos\ThermographyFuncsPy\out\Billet'+f'\\pulseDeltasFactors.tiff',pulseDeltasFactors)
+
+    for i in range(npulses):
+        for j in range(nFramesPerPulse):
+            imgs[i*nFramesPerPulse+j,...] /= pulseDeltasFactors[i,...]
+    cv.imwritemulti(r'C:\Users\benat\source\repos\ThermographyFuncsPy\out\Billet'+f'\\norm_norm{id}.tiff',imgs)
+    return imgs
+#normAmplitudes
+
 #extract oscillating component
 def NormLockin (
     imgs: np.ndarray,
     npulses:int,
     nFramesPerPulse:int
 ) -> np.ndarray:
-    
-    out = np.zeros(imgs.shape,np.float32)
-
     print(f'NormLockin imgs.shape {imgs.shape}')
     print(f'NormLockin npulses {npulses}')
     print(f'NormLockin nFramesPerPulse {nFramesPerPulse}')
@@ -137,11 +161,8 @@ def NormLockin (
         #normalizacion / oscillating = raw - average - linear
         for j in range(nFramesPerPulse):
             linear_ij = delta_i * (float(j) - float(nFramesPerPulse) / 2.0 - 0.5) / float(nFramesPerPulse)
-            out[i * nFramesPerPulse + j] =\
-                imgs[i * nFramesPerPulse + j] -\
-                aver_i -\
-                linear_ij
-    return out
+            imgs[i * nFramesPerPulse + j] -= aver_i + linear_ij
+    return imgs
 #NormLockin
 
 
@@ -149,8 +170,8 @@ def NormLockin (
 
 def dynamicTermo(
     imgs:np.ndarray,
-    deltasLocal:np.ndarray) -> list[np.ndarray]:
-    
+    deltasLocal:np.ndarray
+):    
     #crop output
     y0,y1,x0,x1 = Params.DynamicTermoPars.RoiCrop
     nFramesPerPulse = int(float(Params.Input.frameRate) / float(Params.Input.excFreq))
@@ -181,11 +202,15 @@ def dynamicTermo(
         cv.imwritemulti(f'{Params.outputDir}\\synced{i}.tiff',imgsSynced[-1])
     
     #Locking normalization / oscillating component
-    imgsNorm = list[np.ndarray]()
     for i,imgs in enumerate(imgsSynced):
-        imNorm = NormLockin(imgs, Params.DynamicTermoPars.nPulsesPreserve, nFramesPerPulse)
-        imgsNorm.append(imNorm)
-        cv.imwritemulti(f'{Params.outputDir}\\norm{i}.tiff',imgsNorm[-1])
+        imgsSynced[i] = NormLockin(imgs, Params.DynamicTermoPars.nPulsesPreserve, nFramesPerPulse)
+        cv.imwritemulti(f'{Params.outputDir}\\norm{i}.tiff',imgsSynced[i])
+        if Params.DynamicTermoPars.normAmplitudes:
+            imgsSynced[i] = normAmplitudes(imgsSynced[i], Params.DynamicTermoPars.nPulsesPreserve, nFramesPerPulse)
+            cv.imwritemulti(f'{Params.outputDir}\\norm_norm{i}.tiff',imgsSynced[i])
+    
+    #For FFT or other algs
+    Params.Input.acquisitionPeriods = Params.DynamicTermoPars.nPulsesPreserve
 
-    return imgsNorm
+    return imgsSynced
 #dynamicTermo

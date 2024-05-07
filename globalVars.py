@@ -66,11 +66,12 @@ class ParamsClass:
         nPulsesPreserve = 3
         nPulseSkip=0
         nDirections = 4
+        normAmplitudes = True
         RoiCrop = [36,-20,343,2717+343]
     DynamicTermoPars=DynamicTermo()
 
     class PreprocTermo:
-        averagePulses = True
+        averagePulses = False
     PreprocTermoPars = PreprocTermo()
     
     class PostprocTermo:

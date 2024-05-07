@@ -259,7 +259,7 @@ if __name__=='__main__':
 #Temp filter 
 #   promedia componente alta freq con frames adyacentes roto-trasladados
 #   dimensiones frames identicas a raw
-def TempFilter(\
+def TempFilter_orig(\
     imgs:np.ndarray,
     deltas:list[np.ndarray] | None,
     averageRad = 2,

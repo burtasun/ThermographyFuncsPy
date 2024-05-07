@@ -18,6 +18,7 @@ from fusedProcs import *
 from digStabilization import *
 from dynamicTermo import *
 from misc import *
+from tempFilter_sharedMem import TempFilter
 
 def iniEnv():
     initGlobalVars()
@@ -77,6 +78,9 @@ if __name__=='__main__':
 
     #PREPROC TERMO
     dataInputs = PreProcTermo(dataInputs)
+    if Params.LogData.saveData:
+        for i,imgs in enumerate(dataInputs):
+            cv.imwritemulti(f'{Params.outputDir}\\NormAverage_{i}.tiff', imgs)
     prof.ticTocProfile("PreProcTermo")
 
     #PROC TERMO / fft, pca, etc.
