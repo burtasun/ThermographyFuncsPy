@@ -15,10 +15,14 @@ def PhaseShiftProc(imgs:list[np.ndarray])->np.ndarray:
     psRet = thermo_phase_shift.pixelWisePhaseShift(imgs, Params.Input.betasDeg)
     if psRet is None:
         return None
-    if Params.LogData.saveData:
-        sampledPhaseShift = thermo_phase_shift.samplePhaseShift(psRet)
     flowAcc = thermo_phase_shift.PhaseShiftedOpticalFlow(psRet, None, True)
     vorticityAndDivergence = thermo_phase_shift.IntegrateOpticalFlow(flowAcc, 21)
+    if Params.LogData.saveData:
+        interpedPhaseShift = thermo_phase_shift.samplePhaseShift(psRet)
+        interpedPhaseShift = np.split(interpedPhaseShift,(interpedPhaseShift.shape[0]),axis=0)
+        for i,im in enumerate(interpedPhaseShift):
+            interpedPhaseShift[i]=im.squeeze()#split retains 3 dimensions...
+        vorticityAndDivergence.extend(interpedPhaseShift)
     return vorticityAndDivergence
 
 #PhaseShiftProc
