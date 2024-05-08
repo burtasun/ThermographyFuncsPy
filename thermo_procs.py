@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib as plt
 import cv2 as cv
 from numpy import fft
+import math
 
 from globalVars import *
 import helpers_imgs
@@ -309,6 +310,153 @@ def PCT_Wrap(imgsList:list[np.ndarray], nComponents = 3)->ProcDict:
 #PCT_Wrap
 
 
+def derivTsr(
+    X:np.ndarray,
+    deltaTime:float,
+    sampleLength:int
+) -> list[np.ndarray]: #termo, termoDeriv1, termoDeriv2
+
+    nPars = X.shape[1]
+    #check input
+    if nPars != 5:
+        print("Numero de parametros no soportado!\n")
+        return None
+    if sampleLength < 2:
+        print("SampleLength < 2\n")
+        return None
+    if deltaTime < 0:
+        print("deltaTime < 0\n")
+        return None
+
+    npx = X.shape[0]
+    
+    #aux derivadas
+    def Derivs(x_i, t)->tuple[float,float,float]:#temp,tPrim,tPrimPrim
+        #eval polinomio
+        def Termo(x_i,t) -> float:
+            exponente = 0.0
+            for i in range(5):
+                exponente += x_i[i] * pow(math.log(t), i)
+            return math.exp(exponente)
+        #Termo
+
+        #T(t)
+        tt = Termo(x_i, t)
+        #std::cout << tt << "\n";
+        #T'(t) = (tt/t)*(a1 + 2a*2 ln(t) + 3*a3*(ln t)^2 + 4*a4*(ln t)^3)
+        A = 0.0
+        for i in range(1,5):
+            A += float(i) * x_i[i] * pow(math.log(t), float(i - 1))
+        ttDeriv1 = (tt / t) * A
+
+        #T''(t) = (1/t) * 
+        ttDeriv2 = (1.0 / t) * (\
+            (ttDeriv1 - tt / t) * A +\
+            (tt / t) * (\
+                2.0 * x_i[2] +\
+                6.0 * x_i[3] * math.log(t) +\
+                12.0 * x_i[4] * pow(math.log(t), 2.0)))
+
+        return tt, ttDeriv1, ttDeriv2
+    #Derivs
+
+    termo = np.zeros((npx, sampleLength), np.float32)
+    termoDeriv1 = np.zeros((npx, sampleLength), np.float32)
+    termoDeriv2 = np.zeros((npx, sampleLength), np.float32)
+
+#pragma omp parallel for // LENTO en PY
+    for p in range(npx):
+        for i in range(sampleLength):
+            t = float(i + 1) * deltaTime
+            termo[p, i], termoDeriv1[p, i], termoDeriv2[p, i] = Derivs(X[p,:], t)
+        if (p%1000)==0:
+            print(f'{p}/{npx}')
+    return [termo, termoDeriv1, termoDeriv2]
+
+#derivTsr
+
+
+
+
+#RAJIK 2002
+#   TODO check results with C++ code
+def TSR(
+    imgsIn:np.ndarray,
+    deltaTime,
+    dutyRatio = 0.5
+) -> np.ndarray:
+    """
+    TSR, Shepard 2003
+    log-log poly fit cooling for low-pass and derivation
+
+    Parameters
+    ----------
+    * imgs[nImgs,Height,Width]
+    * deltaTime capture period
+    * dutyRatio, pulsed thermography, dutyRatio
+
+    Return
+    ------
+    ret = list[np.ndarray]
+    """
+    nImgs, h, w = imgsIn.shape
+
+    nPars = 5#hard-codeado para polinomio de 5 coeficientes
+    #ln(T(t))=sigma(a_i (ln(t))^i)
+    #Ax=b
+    #    A=(1 lnt_i (lnt_i)^2)
+    #    se asume mismo numero de frames para las secuencias
+    dutyRatio = min(1.0,max(dutyRatio,0.0))
+    coolingFrame = int(dutyRatio*nImgs)#nCoolFrames
+    imgs = imgsIn[coolingFrame:,...]#cooling span
+    n = imgs.shape[0]
+    def getAinvLogPoly():
+        A = np.zeros((n,nPars))
+        A[:,0]=np.ones((n,),np.float32)
+        for i in range(n):
+            for j in range(1,nPars):
+                A[i,j] = pow(math.log(deltaTime * float(i + 1)), float(j))
+        A_inv = np.linalg.pinv(A)#nPars X n
+        return A, A_inv
+    A, A_inv = getAinvLogPoly()
+    assert((A.shape[0]==A_inv.shape[1]) and (A.shape[1]==A_inv.shape[0]))
+
+
+    #AX=B=[ln(T)
+    #   niapa para evitar exponente negativos
+    minAbs = np.min(imgs) - 1000 #evita exp(0)...
+    imgs = np.log(imgs - minAbs)
+    npx = h*w
+    imgsFlat = imgs.transpose((1,2,0)).reshape((npx,n))
+
+    #log poly pixel-wise coefficients
+    X = (A_inv @ imgsFlat.transpose()).transpose()#npx X nPars
+
+    #reconstruccion y derivada
+    retList = derivTsr(X, deltaTime, n)
+    if retList is None:
+        print('TSR, no se pudo completar')
+        return None
+    #BORRAR 
+    orderedNames = ['termo','deriv1','deriv2']
+    for name,imgs in zip(orderedNames,retList):
+        cv.imwritemulti(f'{Params.outputDir}\\{name}.tiff', imgs)
+    #BORRAR 
+    return retList
+#TSR
+
+def TSR_Wrap(imgsList:list[np.ndarray], deltaTime, dutyRatio = 0.5)->ProcDict:
+    print('ProcTermo, Procs.TSR')
+    dictRet = ProcDict()
+    for imgs in imgsList:
+        retTuple = TSR(imgs, deltaTime, dutyRatio)
+        for i,ret in enumerate(retTuple):
+            if not (f'TSR_{i}' in dictRet):
+                dictRet[f'TSR_{i}']=list()
+            dictRet[f'TSR_{i}'].append(ret)
+    return dictRet
+#TSR._Wrap
+
 
 '''ProcTermo / WRAP CALL FUNCS
 TODO implement procs
@@ -334,7 +482,9 @@ def ProcTermo(
         if ProcType == Procs.SenoidalFit:
             print('ProcTermo, Procs.SenoidalFit not implemented!')
         if ProcType == Procs.TSR:
-            print('ProcTermo, Procs.TSR not implemented!')
+            deltaTime = 1./float(Params.Input.frameRate)
+            dutyRatio = float(Params.Input.dutyRatio)
+            outputDictRets.append(TSR_Wrap(termos, deltaTime, dutyRatio))
             
     outputDict = ProcDict()#ej. {'FFT_Phase': list[np.ndarray], 'FFT_Mag': list[np.ndarray]}
     #flatten dict lists
